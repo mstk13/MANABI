@@ -1,0 +1,162 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8">
+<title>コンパイラとは → 最適化(ループ展開・インライン化 など)</title>
+<style>
+ body{font-family:system-ui,"Segoe UI",sans-serif;margin:0;background:#f6f7f9;color:#1a1a1a}
+ .wrap{max-width:940px;margin:0 auto;padding:20px 18px 70px}
+ h1{font-size:22px;margin:0 0 4px} h2{font-size:18px;margin:28px 0 8px;border-left:5px solid #6a1b9a;padding-left:8px}
+ h3{font-size:15px;margin:12px 0 4px}
+ .sub{color:#666;font-size:13px;margin:0 0 10px}
+ p,li{line-height:1.7;font-size:14.5px} .term{font-weight:700;color:#6a1b9a}
+ .box{background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:14px 16px;margin:10px 0}
+ .analogy{background:#fff8e1;border:1px solid #ffe082} .key{background:#ede7f6;border:1px solid #b39ddb}
+ .toc{background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:10px 16px;font-size:13.5px}
+ .toc a{color:#6a1b9a;text-decoration:none;margin-right:14px}
+ pre{background:#0f172a;color:#e2e8f0;padding:10px 12px;border-radius:8px;font-size:13px;overflow-x:auto;line-height:1.5;font-family:ui-monospace,Consolas,monospace}
+ .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+ .two h3{margin:0 0 4px;font-size:13.5px}
+ .good{color:#a5d6a7}.dim{color:#90a4ae}
+ svg{display:block;margin:6px 0;max-width:100%}
+ .legend{font-size:12px;color:#555;margin:4px 0}
+ button{font-size:13px;padding:5px 10px;border:1px solid #6a1b9a;background:#f3e5f5;border-radius:6px;cursor:pointer}
+ table{border-collapse:collapse;font-size:13.5px;background:#fff;margin:8px 0} td,th{border:1px solid #ddd;padding:6px 9px} th{background:#f3e9f7}
+</style></head><body><div class="wrap">
+
+<h1>コンパイラとは → 最適化(ループ展開・インライン化 など)</h1>
+<p class="sub">「そもそもコンパイラとは?」から、性能を上げる最適化までを図で。</p>
+<div class="toc">📖 <a href="#a">①コンパイラとは</a><a href="#b">②3つの層</a><a href="#c">③最適化</a>
+ <a href="#d">④性能への効き方</a><a href="#e">⑤ISAとの関係</a><a href="#g">用語集</a></div>
+
+<!-- ① -->
+<h2 id="a">① そもそもコンパイラとは?(翻訳機)</h2>
+<div class="box analogy">🌐 <b>たとえ:翻訳者</b><br>
+人が書く言葉(日本語)を、相手が分かる言葉(英語)に訳す翻訳者。<span class="term">コンパイラ</span>は、
+人が書く<b>ソースコード(C, Rust など)</b>を、CPUが分かる<b>機械語(ISAの命令)</b>に訳すソフト。</div>
+<p>CPU は C 言語を直接は理解できない。理解できるのは<b>ISAの命令(機械語)</b>だけ。
+そこでコンパイラが「C → 機械語」へ変換する。下の流れ:</p>
+<div class="box">
+ <svg width="820" height="92" viewBox="0 0 820 92"><rect width="820" height="92" fill="#fff"/>
+  <g font-size="12" text-anchor="middle">
+   <rect x="14" y="26" width="150" height="44" rx="7" fill="#e1f5fe" stroke="#0288d1"/><text x="89" y="46">ソースコード</text><text x="89" y="62" font-size="11" fill="#555">C / Rust…</text>
+   <rect x="220" y="26" width="160" height="44" rx="7" fill="#ede7f6" stroke="#6a1b9a"/><text x="300" y="46" font-weight="700">コンパイラ</text><text x="300" y="62" font-size="11" fill="#555">翻訳+最適化</text>
+   <rect x="436" y="26" width="160" height="44" rx="7" fill="#fff3e0" stroke="#ef6c00"/><text x="516" y="46">機械語</text><text x="516" y="62" font-size="11" fill="#555">ISAの命令列</text>
+   <rect x="652" y="26" width="150" height="44" rx="7" fill="#e8f5e9" stroke="#2e7d32"/><text x="727" y="50">CPUが実行</text></g>
+  <g stroke="#888" marker-end="url(#a2)"><line x1="164" y1="48" x2="218" y2="48"/><line x1="380" y1="48" x2="434" y2="48"/><line x1="596" y1="48" x2="650" y2="48"/></g>
+  <defs><marker id="a2" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#888"/></marker></defs>
+ </svg>
+ <div class="legend">同じCコードでも、賢いコンパイラほど“速い機械語”に訳す。だから性能はコンパイラ次第でも変わる。</div>
+</div>
+
+<!-- ② -->
+<h2 id="b">② コンパイラの3つの層</h2>
+<div class="box">
+ <svg width="820" height="150" viewBox="0 0 820 150"><rect width="820" height="150" fill="#fff"/>
+  <g font-size="12" text-anchor="middle">
+   <rect x="20" y="40" width="240" height="70" rx="8" fill="#e1f5fe" stroke="#0288d1"/><text x="140" y="62" font-weight="700">フロントエンド</text><text x="140" y="80" font-size="11">字句/構文解析 → AST</text><text x="140" y="96" font-size="11" fill="#555">文法チェック</text>
+   <rect x="290" y="40" width="240" height="70" rx="8" fill="#ede7f6" stroke="#6a1b9a"/><text x="410" y="62" font-weight="700">最適化(ミドル)</text><text x="410" y="80" font-size="11">中間表現(IR)で変形</text><text x="410" y="96" font-size="11" fill="#555">ループ展開/インライン他</text>
+   <rect x="560" y="40" width="240" height="70" rx="8" fill="#fff3e0" stroke="#ef6c00"/><text x="680" y="60" font-weight="700">バックエンド</text><text x="680" y="78" font-size="11">命令選択(ISAへ)</text><text x="680" y="94" font-size="11" fill="#555">レジスタ割当/並べ替え</text></g>
+  <g stroke="#888" marker-end="url(#a3)"><line x1="260" y1="75" x2="288" y2="75"/><line x1="530" y1="75" x2="558" y2="75"/></g>
+  <text x="20" y="24" font-size="12" fill="#333">C ソース →</text><text x="760" y="135" font-size="12" fill="#333">→ 機械語(RISC-V)</text>
+  <defs><marker id="a3" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#888"/></marker></defs>
+ </svg>
+</div>
+<ul>
+ <li><span class="term">フロントエンド</span>:コードを読み解いて木構造(<b>AST</b>)に。文法・型をチェック。</li>
+ <li><span class="term">最適化(ミドル)</span>:<b>中間表現(IR)</b>という“中立な形”に直し、速くする変形を何度もかける。ここが本題。</li>
+ <li><span class="term">バックエンド</span>:IR を<b>実際のISA命令に翻訳(命令選択)</b>し、32本のレジスタに変数を割り当て、命令を並べ替えて出力。</li>
+</ul>
+<p>代表的な実装:<b>GCC</b>, <b>LLVM/Clang</b>(どちらも RISC-V バックエンドを持つ)。</p>
+
+<!-- ③ -->
+<h2 id="c">③ 最適化(before / after を見る)</h2>
+<p>ボタンで「最適化前 → 後」を切り替え。各最適化が<b>何を減らすか</b>に注目。</p>
+
+<h3>(1) ループ展開(loop unrolling)</h3>
+<p>ループの中身を数回ぶん複製 → <b>ループの戻り判定(分岐)とカウンタ更新の回数を減らす</b>。分岐が減る=予測ミスのチャンスも減る。</p>
+<div class="box"><button onclick="tog('u')">前/後を切替</button>
+ <div id="u-b"><pre>for (i=0; i&lt;100; i++) {   <span class="dim"># 100回まわる=分岐100回</span>
+    a[i] = b[i] + c[i];
+}</pre></div>
+ <div id="u-a" style="display:none"><pre>for (i=0; i&lt;100; i+=4) {  <span class="good"># 25回=分岐1/4に</span>
+    a[i]   = b[i]   + c[i];
+    a[i+1] = b[i+1] + c[i+1];
+    a[i+2] = b[i+2] + c[i+2];
+    a[i+3] = b[i+3] + c[i+3];   <span class="good"># 本体4つ=並列にしやすい</span>
+}</pre></div>
+ <div class="legend">効果:分岐/カウンタ更新の回数↓、命令の並列性↑。代償:コードが大きくなる。</div>
+</div>
+
+<h3>(2) インライン化(inlining)</h3>
+<p>小さな関数の<b>呼び出しを、関数の中身そのものに置き換える</b> → 呼び出し/戻り(分岐+スタック操作)が消え、さらに前後と一緒に最適化できる。</p>
+<div class="box"><button onclick="tog('i')">前/後を切替</button>
+ <div id="i-b"><pre>int sq(int x){ return x*x; }      <span class="dim"># 関数</span>
+y = sq(a) + sq(b);   <span class="dim"># 呼び出し2回(call/return=分岐)</span></pre></div>
+ <div id="i-a" style="display:none"><pre>y = (a*a) + (b*b);   <span class="good"># 中身を直接展開=call/return消滅</span>
+                     <span class="good"># さらに定数なら畳み込みも可能</span></pre></div>
+ <div class="legend">効果:呼び出しの分岐/スタック↓、追加最適化が効く。代償:展開しすぎるとコード肥大。</div>
+</div>
+
+<h3>(3) if変換(if-conversion → branchless)</h3>
+<p>小さな <code>if</code> を、<b>分岐の無い「選択」</b>に変換(ISAの条件命令=cmov/Zicond等を使う)。これが ISA 編の「分岐回避」とコンパイラが出会う所。</p>
+<div class="box"><button onclick="tog('c')">前/後を切替</button>
+ <div id="c-b"><pre>if (cond) x = a;     <span class="dim"># 分岐(予測ミスの可能性)</span>
+else      x = b;</pre></div>
+ <div id="c-a" style="display:none"><pre>x = cond ? a : b;    <span class="good"># 条件選択命令へ(分岐なし)</span>
+   <span class="good"># RISC-V Zicond: czero.eqz/nez + or の3命令</span></pre></div>
+ <div class="legend">効果:予測しにくい分岐のフラッシュ損を回避。代償:両方を計算するムダ(予測しやすい時は逆に損)。</div>
+</div>
+
+<p style="font-size:13px;color:#555">他にも:<b>定数畳み込み</b>(<code>2*3</code>→<code>6</code>を事前計算)、<b>デッドコード除去</b>(使わない計算を消す)、
+<b>共通部分式の削除</b>、<b>命令スケジューリング</b>(並べ替えてストール回避)など多数。</p>
+
+<!-- ④ -->
+<h2 id="d">④ コンパイラは性能にどう効くか</h2>
+<div class="box key">🧮 ISA編と同じ鉄則:<b>実行時間 = 命令数 × CPI × クロック周期</b>。<br>
+コンパイラは実際に出す命令列を決めるので:
+<ul style="margin:6px 0">
+ <li><b>命令数↓</b>:インライン化・定数畳み込み・デッドコード除去・良いレジスタ割当</li>
+ <li><b>CPI↓</b>:ループ展開/if変換で<b>分岐(=予測ミス)を減らす</b>、スケジューリングでストール回避</li>
+</ul>
+だから同じCコードでも <code>-O0</code>(最適化なし)と <code>-O2</code> で実行時間が数倍変わることも。</div>
+<div class="box"><div class="legend">同じプログラムの実行時間(イメージ):最適化レベルで変わる</div>
+ <svg width="760" height="120" viewBox="0 0 760 120"><rect width="760" height="120" fill="#fff"/>
+  <g font-size="12">
+   <text x="10" y="30">-O0</text><rect x="60" y="16" width="640" height="22" fill="#ef9a9a"/><text x="710" y="32">遅い</text>
+   <text x="10" y="64">-O2</text><rect x="60" y="50" width="300" height="22" fill="#a5d6a7"/><text x="370" y="66">速い</text>
+   <text x="10" y="98">-O2+ベクタ化</text><rect x="120" y="84" width="160" height="22" fill="#66bb6a"/><text x="290" y="100">もっと速い</text></g>
+ </svg>
+</div>
+
+<!-- ⑤ -->
+<h2 id="e">⑤ ISA と コンパイラ の関係(役割分担)</h2>
+<div class="box key">🤝 <b>ISA = 道具を用意する / コンパイラ = 道具を使う</b><br>
+<ul style="margin:6px 0">
+ <li>ISA が <b>Zicond(条件ゼロ)</b>や <b>M(乗除算)</b>, <b>V(ベクタ)</b> という命令を“提供”。</li>
+ <li>コンパイラが、ソースを見て <b>「ここは分岐回避にしよう」「ベクタ命令にまとめよう」</b>と判断して、その命令を<b>実際に出す</b>。</li>
+</ul>
+前回の「分岐の頻度はソフト/コンパイラが制御」= まさにこれ(ループ展開・インライン・if変換)。
+ISAに良い道具があっても、コンパイラが使わなければ宝の持ち腐れ。逆も然り。</div>
+
+<!-- 用語集 -->
+<h2 id="g">📚 用語集</h2>
+<table>
+ <tr><th>用語</th><th>意味</th></tr>
+ <tr><td>コンパイラ</td><td>ソースコード(C等)を機械語(ISA命令)に翻訳するソフト</td></tr>
+ <tr><td>ソース/機械語</td><td>人が書くコード / CPUが直接実行できる命令列</td></tr>
+ <tr><td>フロントエンド</td><td>解析してAST(木)にし文法チェックする層</td></tr>
+ <tr><td>AST</td><td>コードの構造を表す木</td></tr>
+ <tr><td>IR(中間表現)</td><td>最適化しやすい中立な形。ここで変形をかける</td></tr>
+ <tr><td>バックエンド</td><td>IRをISA命令に翻訳・レジスタ割当・並べ替えする層</td></tr>
+ <tr><td>命令選択</td><td>IRの演算を実際のISA命令に対応づけること</td></tr>
+ <tr><td>レジスタ割当</td><td>変数を32本のレジスタに割り当てる(足りなければメモリへ退避)</td></tr>
+ <tr><td>ループ展開</td><td>ループ本体を複製し、分岐/カウンタ更新を減らす</td></tr>
+ <tr><td>インライン化</td><td>関数呼び出しを中身に置換し、呼び出し負荷を消す</td></tr>
+ <tr><td>if変換</td><td>ifを分岐なしの選択(cmov/Zicond)に変える</td></tr>
+ <tr><td>-O0/-O2</td><td>最適化レベル(0=なし, 2=しっかり最適化)</td></tr>
+</table>
+<p class="sub">関連:ISA編 → <a href="../riscv-isa/isa.html">isa.html</a> / パイプライン編 → <a href="../cpu-pipeline/pipeline_notes.md">pipeline_notes.md</a></p>
+
+<script>
+function tog(k){const b=document.getElementById(k+"-b"),a=document.getElementById(k+"-a");
+ const show=b.style.display==="none";b.style.display=show?"block":"none";a.style.display=show?"none":"block";}
+</script>
+</div></body></html>

@@ -13,6 +13,8 @@
 | トピック | ノート | 図(ブラウザ) |
 |---|---|---|
 | CPU パイプライン(基礎〜段数の決め方〜分岐予測ミス) | [cpu-pipeline/pipeline_notes.md](cpu-pipeline/pipeline_notes.md) | [入門](https://mstk13.github.io/MANABI/cpu-pipeline/pipeline_basics.html) / [3つの力](https://mstk13.github.io/MANABI/cpu-pipeline/pipeline_depth.html) |
+| RISC-V で学ぶ ISA(命令セット・分岐回避・性能) | [riscv-isa/isa_notes.md](riscv-isa/isa_notes.md) | [ISA図解](https://mstk13.github.io/MANABI/riscv-isa/isa.html) |
+| コンパイラとは → 最適化(ループ展開/インライン化 等) | [compiler/compiler_notes.md](compiler/compiler_notes.md) | [コンパイラ図解](https://mstk13.github.io/MANABI/compiler/compiler.html) |
 
 ## 追加のしかた
 1. `トピック名/note.md` を作って書く(図が要れば同じフォルダに `.html`)。
