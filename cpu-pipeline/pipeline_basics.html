@@ -1,0 +1,186 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8">
+<title>パイプラインの基礎 → 段数を決める3つの力(やさしい版)</title>
+<style>
+ body{font-family:system-ui,"Segoe UI",sans-serif;margin:0;background:#f6f7f9;color:#1a1a1a}
+ .wrap{max-width:920px;margin:0 auto;padding:20px 18px 60px}
+ h1{font-size:22px;margin:0 0 4px} h2{font-size:18px;margin:30px 0 8px;border-left:5px solid #1565c0;padding-left:8px}
+ .sub{color:#666;font-size:13px;margin:0 0 10px}
+ p{line-height:1.7;font-size:14.5px} .term{font-weight:700;color:#0d47a1}
+ .box{background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:14px 16px;margin:10px 0}
+ .analogy{background:#fff8e1;border:1px solid #ffe082}
+ .key{background:#e8f5e9;border:1px solid #a5d6a7}
+ .toc{background:#fff;border:1px solid #e0e0e0;border-radius:10px;padding:10px 16px;font-size:13.5px}
+ .toc a{color:#1565c0;text-decoration:none;margin-right:14px}
+ svg{display:block;margin:6px 0;max-width:100%}
+ .legend{font-size:12px;color:#444;margin:4px 0}
+ .sw{display:inline-block;width:12px;height:12px;border-radius:2px;vertical-align:middle;margin:0 3px 0 10px}
+ .ctl{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin:8px 0}
+ .ctl input[type=range]{width:260px}
+ .read{font-size:13px;color:#333}
+ table{border-collapse:collapse;font-size:13.5px;margin:8px 0;background:#fff}
+ td,th{border:1px solid #ddd;padding:6px 10px;text-align:left} th{background:#f0f4f8}
+ .big{font-size:17px;font-weight:700}
+</style></head><body><div class="wrap">
+
+<h1>パイプラインの基礎 → 段数の決め方(やさしい版)</h1>
+<p class="sub">用語を1つずつ図で説明して、最後に「段数を決める3つの力」へつなげます。難しい数式は最小限。</p>
+
+<div class="toc">📖 目次:
+ <a href="#a">①パイプラインとは</a><a href="#b">②段(ステージ)とクロック</a>
+ <a href="#c">③なぜ段に分けると速い</a><a href="#d">④でも頭打ち(レジスタ)</a>
+ <a href="#e">⑤ムダ(CPIと分岐ミス)</a><a href="#f">⑥3つの力(まとめ)</a><a href="#g">用語集</a></div>
+
+<!-- ============ ① ============ -->
+<h2 id="a">① パイプラインとは?(流れ作業)</h2>
+<div class="box analogy">🧺 <b>たとえ:洗濯物</b><br>
+洗濯を「<b>洗う→乾かす→畳む</b>」の3工程に分けるとします。1人ぶんを全部終えてから次の人…だと遅い。
+でも「Aさんを乾かしてる間に、Bさんを洗う」と<b>工程を重ねる</b>と、全体がどんどん速く片付きます。これが<span class="term">パイプライン</span>。</div>
+<p>CPU も同じ。1つの<span class="term">命令</span>(=CPUがやる1つの作業)を一気に処理せず、いくつかの工程に分けて<b>重ねて</b>流します。</p>
+
+<!-- ============ ② ============ -->
+<h2 id="b">② 段(ステージ)とクロック</h2>
+<p><span class="term">段(ステージ)</span>= 流れ作業の1工程。CPUの定番は5段:
+<b>IF</b>(命令を取る)→<b>ID</b>(解読)→<b>EX</b>(計算)→<b>MEM</b>(メモリ)→<b>WB</b>(書き戻し)。</p>
+<p><span class="term">クロック</span>= CPUの“拍子”。1拍 = <span class="term">1サイクル</span>。1秒間の拍数が<span class="term">周波数</span>(GHz)。
+<span class="term">サイクル時間</span>= 1拍の長さ。<b>短いほど速い</b>。1拍ごとに各命令が次の段へ1つ進みます。</p>
+<div class="box">
+ <div class="legend">下図:命令 I1〜I5 が段を流れる様子(横=サイクル, 色=段)。斜めに重なる=パイプライン。</div>
+ <svg id="timing" width="860" height="200" viewBox="0 0 860 200"></svg>
+ <div class="legend">
+  <span class="sw" style="background:#1565c0"></span>IF
+  <span class="sw" style="background:#00897b"></span>ID
+  <span class="sw" style="background:#ef6c00"></span>EX
+  <span class="sw" style="background:#8e24aa"></span>MEM
+  <span class="sw" style="background:#c62828"></span>WB
+  　→ サイクル3以降は<b>毎拍1命令が完成</b>(重なってるから速い)</div>
+</div>
+
+<!-- ============ ③ ============ -->
+<h2 id="c">③ なぜ段に分けると“速くできる”のか</h2>
+<p>CPUの中身は論理回路(電気が通って計算する道)。電気が端から端まで通るのに時間がかかります。
+その<b>一番長い道</b>を<span class="term">クリティカルパス</span>と言い、<b>サイクル時間はこの最長の道で決まります</b>(間に合わないと壊れる)。</p>
+<div class="box key">💡 <b>段に分ける=長い道を途中で区切る</b>。1区間が短くなる→1拍を短くできる→<b>周波数(速さ)を上げられる</b>。<br>
+ざっくり: <b>サイクル時間 = (全体の論理) ÷ 段数 + すこしの固定コスト</b>。段数を増やすと前半が小さくなる=速くなる。</div>
+
+<!-- ============ ④ ============ -->
+<h2 id="d">④ でも“頭打ち”になる(レジスタの固定コスト)</h2>
+<p>段と段の境目には<span class="term">レジスタ(フリップフロップ)</span>という「データを1拍だけ止めて次へ渡す部品」が要ります。
+これ自体に毎段<b>固定の時間</b>(<span class="term">オーバヘッド</span>)がかかります。</p>
+<p>だから段を増やしすぎると、1段の“役立つ計算”より“境目の固定コスト”の方が目立ってきて、<b>もう速くならない(頭打ち)</b>。下のバーで体感:</p>
+<div class="box">
+ <div class="ctl"><label>段数 N <input id="pn" type="range" min="1" max="16" value="4"></label>
+   <span class="read" id="pnread"></span></div>
+ <svg id="pipebar" width="860" height="120" viewBox="0 0 860 120"></svg>
+ <div class="legend"><span class="sw" style="background:#1565c0"></span>役立つ論理(段数↑で薄くなる)
+  <span class="sw" style="background:#bdbdbd"></span>レジスタの固定コスト(変わらない)→ 比率が増える=頭打ち</div>
+</div>
+
+<!-- ============ ⑤ ============ -->
+<h2 id="e">⑤ “ムダ”の話(CPI と 分岐ミス)</h2>
+<p><span class="term">CPI</span>= 1命令あたり平均何サイクルかかるか。理想は<b>1</b>(毎拍1命令完成)。
+でも実際は“流れが乱れる”=<span class="term">ハザード</span>でムダな拍が入り、CPIは1より大きくなります(大きい=遅い)。</p>
+<p>代表が<span class="term">分岐予測ミス</span>。CPUは「次どの命令を実行?」を<b>予想して先に流し</b>ますが、
+分岐(if文など)で外すと、<b>先に流した命令を全部捨ててやり直し</b>。下図の×が捨てる命令です。</p>
+<div class="box">
+ <svg id="flush" width="860" height="170" viewBox="0 0 860 170"></svg>
+ <div class="legend">🔴<b>深い(段数が多い)ほど、捨てる命令が増える</b> → ムダ(CPI)が増える。これが「深くしすぎると損」の正体。</div>
+</div>
+
+<!-- ============ ⑥ ============ -->
+<h2 id="f">⑥ まとめ:段数を決める「3つの力」</h2>
+<p>ここまでの用語で、3つの力がそのまま読めます。スライダーを動かすと曲線が変わります。</p>
+<div class="box">
+ <div class="ctl"><label>段数 N <input id="N" type="range" min="1" max="20" value="5"></label><span class="read" id="Nread"></span></div>
+ <div class="legend">
+  <span class="sw" style="background:#1565c0"></span><b>速さ</b>(クロック上限 fmax)
+  <span class="sw" style="background:#c62828"></span><b>ムダ</b>(CPI)
+  <span class="sw" style="background:#2e7d32"></span><b>実力</b>(=速さ÷ムダ:本当の処理能力)
+  <span class="sw" style="background:#8e24aa"></span><b>電力</b></div>
+ <svg id="chart" width="860" height="260" viewBox="0 0 860 260"></svg>
+ <div class="legend" id="optnote"></div>
+</div>
+<table>
+ <tr><th>力</th><th>意味(やさしく)</th><th>図の効果</th></tr>
+ <tr><td><b>①下限</b></td><td>欲しい速さ(周波数)を出すには、最低これだけ段がいる</td><td>速さ(青)を上げたい→段を増やす</td></tr>
+ <tr><td><b>②頭打ち</b></td><td>レジスタの固定コストで、ある所から速くならない</td><td>青がだんだん平らに</td></tr>
+ <tr><td><b>③上限/逆効果</b></td><td>分岐ミスでムダ(赤)が増え、電力(紫)も増える</td><td>緑(実力)が<b>ピーク</b>を越えると下がる</td></tr>
+</table>
+<div class="box key">🎯 結論:<b>「実力(緑)が一番高くなる段数」=最適</b>。それより浅い=遅い、深い=ムダと電力で損。
+だから「やみくもに深く」はダメ。<br>
+※ 宇宙/航空の制御チップは「動作時間がきっちり読めること(=予測=深い投機を避ける)」が大事なので、<b>あえて浅め(5段くらい)で固定</b>するのが正解、という話にもつながります。</div>
+
+<!-- ============ 用語集 ============ -->
+<h2 id="g">📚 用語集(困ったら戻る)</h2>
+<table>
+ <tr><th>用語</th><th>意味</th></tr>
+ <tr><td>命令</td><td>CPUがやる1つの作業</td></tr>
+ <tr><td>パイプライン</td><td>命令を工程に分けて重ねて流す仕組み(流れ作業)</td></tr>
+ <tr><td>段/ステージ</td><td>流れ作業の1工程(IF/ID/EX/MEM/WB など)</td></tr>
+ <tr><td>クロック/サイクル</td><td>CPUの拍子。1拍=1サイクル。1秒の拍数=周波数(GHz)</td></tr>
+ <tr><td>サイクル時間</td><td>1拍の長さ。短い=速い</td></tr>
+ <tr><td>fmax</td><td>出せる最高周波数=1÷(一番遅い段の時間)</td></tr>
+ <tr><td>クリティカルパス</td><td>論理回路で一番時間がかかる道。サイクル時間を決める</td></tr>
+ <tr><td>レジスタ(フリップフロップ)</td><td>段の境目でデータを1拍止めて渡す部品。毎段固定コスト</td></tr>
+ <tr><td>オーバヘッド</td><td>本来の仕事以外にかかる固定の手間(ここではレジスタの時間)</td></tr>
+ <tr><td>CPI</td><td>1命令あたり平均サイクル数。小さいほど良い(理想1)</td></tr>
+ <tr><td>ハザード</td><td>パイプラインの流れが乱れる事態(ムダな拍が入る)</td></tr>
+ <tr><td>分岐予測ミス</td><td>次の命令の予想を外し、先に流した命令を捨ててやり直すこと</td></tr>
+ <tr><td>実力(性能)</td><td>速さ÷ムダ=本当の処理能力</td></tr>
+</table>
+
+<script>
+const $=id=>document.getElementById(id);
+const ST=[["IF","#1565c0"],["ID","#00897b"],["EX","#ef6c00"],["MEM","#8e24aa"],["WB","#c62828"]];
+
+// ② タイミングチャート(静的)
+(function(){const x0=70,y0=24,cw=66,rh=30,nI=5,nS=5;let s=`<rect width="860" height="200" fill="#fff"/>`;
+ for(let c=0;c<nI+nS;c++){s+=`<text x="${x0+c*cw+cw/2}" y="16" font-size="11" fill="#888" text-anchor="middle">cyc${c+1}</text>`;}
+ for(let i=0;i<nI;i++){const y=y0+i*rh;s+=`<text x="10" y="${y+rh/2+4}" font-size="12" fill="#333">I${i+1}</text>`;
+  for(let st=0;st<nS;st++){const c=i+st,x=x0+c*cw;const[lab,col]=ST[st];
+   s+=`<rect x="${x+1}" y="${y+1}" width="${cw-2}" height="${rh-2}" rx="3" fill="${col}"/><text x="${x+cw/2}" y="${y+rh/2+4}" font-size="11" fill="#fff" text-anchor="middle">${lab}</text>`;}}
+ $("timing").innerHTML=s;})();
+
+// ④ パイプラインバー(動的)
+function pipebar(){const N=+$("pn").value,W=860,H=120,x0=10,top=16,h=78,gap=5;
+ const L=1000,R=70,scale=h/(L/1+R);const totalW=W-2*x0,bw=(totalW-(N-1)*gap)/N;
+ const lH=(L/N)*scale,rH=R*scale;let s=`<rect width="${W}" height="${H}" fill="#fff"/>`;
+ for(let i=0;i<N;i++){const x=x0+i*(bw+gap);
+  s+=`<rect x="${x}" y="${top+(h-lH-rH)}" width="${bw}" height="${lH}" fill="#1565c0"/>`;
+  s+=`<rect x="${x}" y="${top+(h-rH)}" width="${bw}" height="${rH}" fill="#bdbdbd"/>`;}
+ $("pipebar").innerHTML=s;
+ const cyc=(L/N+R);$("pnread").innerHTML=`1段の論理=${(L/N).toFixed(0)} + 固定${R} → サイクル時間 <b>${cyc.toFixed(0)}</b>(短いほど速い)。Nを大きくすると固定の比率↑で頭打ち。`;}
+$("pn").addEventListener("input",pipebar);pipebar();
+
+// ⑤ flush 図(静的): 6段の例、cyc=4 で分岐ミス発覚→後続を捨てる
+(function(){const x0=70,y0=22,cw=64,rh=26,nI=6;let s=`<rect width="860" height="170" fill="#fff"/>`;
+ const flushFrom=2; // I3以降(予想で流した分)を捨てる
+ for(let i=0;i<nI;i++){const y=y0+i*rh;const bad=i>=flushFrom;
+  s+=`<text x="10" y="${y+rh/2+4}" font-size="12" fill="${bad?'#c62828':'#333'}">I${i+1}</text>`;
+  for(let st=0;st<5;st++){const x=x0+(i+st)*cw;const[lab,col]=ST[st];
+   const fill=bad?'#ef9a9a':col;
+   s+=`<rect x="${x+1}" y="${y+1}" width="${cw-2}" height="${rh-2}" rx="3" fill="${fill}"/><text x="${x+cw/2}" y="${y+rh/2+4}" font-size="10" fill="#fff" text-anchor="middle">${lab}</text>`;
+   if(bad)s+=`<text x="${x+cw/2}" y="${y+rh/2+5}" font-size="15" fill="#900" text-anchor="middle">✕</text>`;}}
+ s+=`<text x="${x0}" y="165" font-size="12" fill="#c62828">I1の分岐判定が外れた → 予想で先に流した I3,I4,I5,I6 を捨てる(=ムダ)。段が深いほど捨てる数が多い。</text>`;
+ $("flush").innerHTML=s;})();
+
+// ⑥ 3つの力チャート(動的)
+const NMAX=20,L=1200,R=110,B=0.05;
+const fmax=n=>1000/(L/n+R), cpi=n=>1+B*Math.max(0,n-1), perf=n=>fmax(n)/cpi(n), power=n=>(0.4*n+1)*fmax(n);
+function chart(){const N=+$("N").value,W=860,H=260,mx=40,my=16,pw=W-mx-12,ph=H-my-26;
+ const xs=n=>mx+(n-1)/(NMAX-1)*pw, arr=fn=>{const a=[];for(let n=1;n<=NMAX;n++)a.push(fn(n));return a;};
+ const norm=a=>{const mn=Math.min(...a),mxx=Math.max(...a);return a.map(v=>(v-mn)/((mxx-mn)||1));};
+ const ys=v=>my+ph-v*ph;
+ const poly=(a,c)=>{const n=norm(a);let d="";n.forEach((v,i)=>d+=(i?"L":"M")+xs(i+1).toFixed(1)+","+ys(v).toFixed(1)+" ");
+  return `<polyline points="${d}" fill="none" stroke="${c}" stroke-width="2.6"/><circle cx="${xs(N)}" cy="${ys(n[N-1])}" r="4.5" fill="${c}"/>`;};
+ let s=`<rect width="${W}" height="${H}" fill="#fff"/>`;
+ for(let n=1;n<=NMAX;n++){const x=xs(n);if(n%5===0||n===1){s+=`<line x1="${x}" y1="${my}" x2="${x}" y2="${my+ph}" stroke="#eee"/><text x="${x}" y="${H-8}" font-size="11" fill="#777" text-anchor="middle">${n}</text>`;}}
+ s+=`<text x="${mx+pw/2}" y="${H-22}" font-size="12" fill="#555" text-anchor="middle">段数 N(左=浅い / 右=深い)</text>`;
+ s+=`<line x1="${xs(N)}" y1="${my}" x2="${xs(N)}" y2="${my+ph}" stroke="#1565c0" stroke-dasharray="4 3"/>`;
+ s+=poly(arr(power),"#8e24aa")+poly(arr(fmax),"#1565c0")+poly(arr(cpi),"#c62828")+poly(arr(perf),"#2e7d32");
+ $("chart").innerHTML=s;
+ const pf=arr(perf);let best=1;for(let n=2;n<=NMAX;n++)if(pf[n-1]>pf[best-1])best=n;
+ $("Nread").innerHTML=` = ${N}`;
+ $("optnote").innerHTML=`緑(実力)のピーク=<b>最適段数 ≈ N=${best}</b>。今のN=${N}は <b>${N<best?'まだ浅い(もっと速くできる)':N===best?'ちょうど良い':'深すぎ(ムダ・電力で損)'}</b>。`;}
+$("N").addEventListener("input",chart);chart();
+</script>
+</div></body></html>

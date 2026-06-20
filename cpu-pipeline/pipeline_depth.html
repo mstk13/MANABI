@@ -1,0 +1,132 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8">
+<title>パイプライン段数を決める3つの力</title>
+<style>
+ body{font-family:system-ui,"Segoe UI",sans-serif;margin:18px;background:#fafafa;color:#1a1a1a;max-width:1100px}
+ h1{font-size:21px;margin:0 0 2px} .sub{color:#666;font-size:13px;margin:0 0 14px}
+ .ctl{display:flex;gap:18px;flex-wrap:wrap;background:#fff;border:1px solid #ddd;border-radius:8px;padding:10px 14px;margin-bottom:12px}
+ .ctl label{font-size:13px;display:flex;flex-direction:column;gap:2px}
+ .ctl input[type=range]{width:180px}
+ .read{display:flex;gap:14px;flex-wrap:wrap;font-size:13px;margin:6px 0 14px}
+ .read b{font-size:16px}
+ .pill{background:#fff;border:1px solid #ddd;border-radius:6px;padding:6px 10px}
+ .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+ .card{background:#fff;border:1px solid #ddd;border-radius:8px;padding:10px}
+ .card h3{margin:2px 0 6px;font-size:14px}
+ .card.f1{border-top:4px solid #1565c0}.card.f2{border-top:4px solid #ef6c00}.card.f3{border-top:4px solid #c62828}
+ .card p{font-size:12.5px;color:#333;margin:6px 0;line-height:1.5}
+ svg{display:block} .chartwrap{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px}
+ .note{font-size:12px;color:#555;margin-top:4px}
+ .legend{font-size:12px;margin:4px 0 10px}
+ .sw{display:inline-block;width:11px;height:11px;border-radius:2px;vertical-align:middle;margin:0 3px 0 10px}
+</style></head><body>
+<h1>パイプライン段数 N を決める「3つの力」</h1>
+<p class="sub">スライダーで段数とパラメータを動かすと、各曲線が変わります。「深くするほど速い」が頭打ち&逆効果になる様子を見てください。</p>
+
+<div class="ctl">
+  <label>① 段数 N <input id="N" type="range" min="1" max="20" value="5"><span id="Nv"></span></label>
+  <label>全論理遅延 L (ps) <input id="L" type="range" min="600" max="2000" step="50" value="1200"><span id="Lv"></span></label>
+  <label>② レジスタオーバヘッド R (ps/段) <input id="R" type="range" min="40" max="200" step="5" value="110"><span id="Rv"></span></label>
+  <label>③ ブランチ損係数 (CPI傾き) <input id="B" type="range" min="0" max="100" step="1" value="45"><span id="Bv"></span></label>
+</div>
+
+<div class="read">
+  <span class="pill">1段の論理 = L/N = <b id="perstage"></b> ps</span>
+  <span class="pill">サイクル時間 = L/N + R = <b id="cyc"></b> ps</span>
+  <span class="pill">fmax = <b id="fmax"></b> GHz</span>
+  <span class="pill">CPI = <b id="cpi"></b></span>
+  <span class="pill">性能(fmax/CPI) = <b id="perf"></b></span>
+</div>
+
+<div class="chartwrap">
+  <div class="legend">
+   <span class="sw" style="background:#1565c0"></span>fmax(段数↑で上がるが頭打ち)
+   <span class="sw" style="background:#c62828"></span>CPI(段数↑で悪化)
+   <span class="sw" style="background:#2e7d32"></span>性能=fmax/CPI(最適点でピーク)
+   <span class="sw" style="background:#8e24aa"></span>電力(性能より速く増える)
+   　縦線=現在のN
+  </div>
+  <svg id="chart" width="1060" height="300" viewBox="0 0 1060 300"></svg>
+  <div class="note" id="optnote"></div>
+</div>
+
+<h3 style="margin:16px 0 8px">パイプラインの中身(1段の「有用な論理」が縮み、固定オーバヘッドの割合が増える)</h3>
+<div class="chartwrap"><svg id="pipe" width="1060" height="120" viewBox="0 0 1060 120"></svg>
+ <div class="legend"><span class="sw" style="background:#1565c0"></span>論理(useful) <span class="sw" style="background:#bdbdbd"></span>レジスタオーバヘッド(固定)</div>
+</div>
+
+<div class="grid" style="margin-top:14px">
+  <div class="card f1"><h3>① クリティカルパス vs 目標周波数(下限)</h3>
+    <p>全論理 L を N 段に割ると <b>1段=L/N</b>。サイクル時間=L/N+R。<b>目標fmaxを満たす最小Nが下限</b>。速くしたいほど段数が要る。</p>
+    <p>=「速くしたい時だけ深くする」。逆に言えば目標を満たすなら増やさない。</p></div>
+  <div class="card f2"><h3>② レジスタオーバヘッドの底(頭打ち)</h3>
+    <p>段ごとに固定の R(FF伝搬+セットアップ+スキュー)が乗る。深くすると <b>1段の仕事≈R</b> になり <b>fmaxが飽和</b>(1/Rが上限)。それ以上は伸びない=収穫逓減。</p>
+    <p>目安: 1段あたり ~8〜15 FO4 より薄くしても無駄。</p></div>
+  <div class="card f3"><h3>③ ハザード損 と 電力(上限/逆効果)</h3>
+    <p><b>ブランチ誤予測ペナルティ≒段数</b> → 深いほど CPI 悪化。性能=fmax/CPI なので <b>最適段数でピーク</b>、超えると低下。</p>
+    <p>さらにフロップ/クロック電力・投機の無駄で <b>電力は性能より速く増える</b>。制御系(WCET/決定論)では深い投機自体が不利 → 浅め固定。</p></div>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+const NMAX=20;
+function params(){return {L:+$("L").value, R:+$("R").value, B:+$("B").value/1000};}
+function fmax(n,p){return 1000/(p.L/n + p.R);}              // GHz
+function cpi(n,p){return 1 + p.B*Math.max(0,n-1);}
+function perf(n,p){return fmax(n,p)/cpi(n,p);}
+function power(n,p){return (0.4*n+1)*fmax(n,p);}            // 正規化前
+
+// ---- 折れ線チャート ----
+function series(fn,p){const a=[];for(let n=1;n<=NMAX;n++)a.push(fn(n,p));return a;}
+function drawChart(){
+  const p=params(), N=+$("N").value;
+  const W=1060,H=300, mx=46,my=20, pw=W-mx-14, ph=H-my-28;
+  const xs=n=>mx+(n-1)/(NMAX-1)*pw;
+  const fm=series(fmax,p), cp=series(cpi,p), pf=series(perf,p), pw_=series(power,p);
+  const norm=arr=>{const mn=Math.min(...arr),mx2=Math.max(...arr);return arr.map(v=>(v-mn)/((mx2-mn)||1));};
+  const ys=v=>my+ph-v*ph;
+  const poly=(arr,col)=>{const nn=norm(arr);let d="";nn.forEach((v,i)=>d+=(i?"L":"M")+xs(i+1).toFixed(1)+","+ys(v).toFixed(1)+" ");
+    return `<polyline points="${d}" fill="none" stroke="${col}" stroke-width="2.4"/>`+
+      `<circle cx="${xs(N)}" cy="${ys(nn[N-1])}" r="4" fill="${col}"/>`;}
+  let s=`<rect x="0" y="0" width="${W}" height="${H}" fill="#fff"/>`;
+  // x軸グリッド
+  for(let n=1;n<=NMAX;n++){const x=xs(n);s+=`<line x1="${x}" y1="${my}" x2="${x}" y2="${my+ph}" stroke="${n%5===0?'#e0e0e0':'#f4f4f4'}"/>`;
+    if(n%5===0||n===1)s+=`<text x="${x}" y="${H-8}" font-size="11" text-anchor="middle" fill="#666">${n}</text>`;}
+  s+=`<text x="${mx+pw/2}" y="${H-22}" font-size="12" text-anchor="middle" fill="#444">段数 N</text>`;
+  // 現在N縦線
+  s+=`<line x1="${xs(N)}" y1="${my}" x2="${xs(N)}" y2="${my+ph}" stroke="#1565c0" stroke-dasharray="4 3" stroke-width="1.5"/>`;
+  s+=poly(pw_,"#8e24aa")+poly(fm,"#1565c0")+poly(cp,"#c62828")+poly(pf,"#2e7d32");
+  $("chart").innerHTML=s;
+  // 最適段数(性能ピーク)
+  let best=1;for(let n=2;n<=NMAX;n++)if(pf[n-1]>pf[best-1])best=n;
+  $("optnote").innerHTML=`この設定での<b>性能(緑)のピーク=最適段数 ≈ N=${best}</b>。`+
+    `N=${N} は ${N<best?'まだ浅い(速くできる余地)':N===best?'最適付近':'深すぎ(CPI/電力で損)'}。各曲線は見やすさのため各々最小〜最大で正規化。`;
+}
+// ---- パイプライン図 ----
+function drawPipe(){
+  const p=params(), N=+$("N").value, W=1060,H=120, gap=6, x0=14, top=14, h=72;
+  const totalW=W-x0-14, bw=(totalW-(N-1)*gap)/N;
+  const scale=h/(p.L/1 + p.R*1);                 // 1段(N=1)の高さ基準
+  const logicH=(p.L/N)*scale, regH=p.R*scale;
+  let s=`<rect x="0" y="0" width="${W}" height="${H}" fill="#fff"/>`;
+  for(let i=0;i<N;i++){const x=x0+i*(bw+gap);
+    s+=`<rect x="${x}" y="${top+(h-logicH-regH)}" width="${bw}" height="${logicH}" fill="#1565c0"/>`;
+    s+=`<rect x="${x}" y="${top+(h-regH)}" width="${bw}" height="${regH}" fill="#bdbdbd"/>`;
+    if(bw>22)s+=`<text x="${x+bw/2}" y="${top+h+14}" font-size="10" text-anchor="middle" fill="#888">S${i+1}</text>`;}
+  s+=`<text x="${x0}" y="11" font-size="11" fill="#666">← 段が増えるほど各段の論理(青)は薄く、固定オーバヘッド(灰)の比率↑ → ②頭打ち</text>`;
+  $("pipe").innerHTML=s;
+}
+function update(){
+  const p=params(), N=+$("N").value;
+  $("Nv").textContent=" = "+N; $("Lv").textContent=" = "+p.L; $("Rv").textContent=" = "+p.R;
+  $("Bv").textContent=" = "+(p.B).toFixed(3);
+  $("perstage").textContent=(p.L/N).toFixed(0);
+  $("cyc").textContent=(p.L/N+p.R).toFixed(0);
+  $("fmax").textContent=fmax(N,p).toFixed(2);
+  $("cpi").textContent=cpi(N,p).toFixed(3);
+  $("perf").textContent=perf(N,p).toFixed(2);
+  drawChart(); drawPipe();
+}
+["N","L","R","B"].forEach(id=>$(id).addEventListener("input",update));
+update();
+</script>
+</body></html>
