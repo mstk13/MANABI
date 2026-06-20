@@ -1,0 +1,13 @@
+# RISC-V コンパイラ実験環境(make 経由で使う)
+services:
+  riscv:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    image: manabi-riscv-practice:latest
+    working_dir: /work
+    volumes:
+      - .:/work
+    user: "${HOST_UID:-0}:${HOST_GID:-0}"
+    stdin_open: true
+    tty: true
