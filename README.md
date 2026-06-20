@@ -17,6 +17,7 @@
 | コンパイラとは → 最適化(ループ展開/インライン化 等) | [compiler/compiler_notes.md](compiler/compiler_notes.md) | [コンパイラ図解](https://mstk13.github.io/MANABI/compiler/compiler.html) |
 | **Practice(手を動かす)**: RISC-V を実際にコンパイルして命令の速さを実験(Docker, OSS) | [Practice/README.md](Practice/README.md) | [実験の図解](https://mstk13.github.io/MANABI/Practice/practice.html) |
 | **AIアクセラレータ開発ロードマップ**: AIの中身→設計手法→世の中の事例→未経験から現場ジョインの学習プログラム | [ai-accelerator/ai_accel_notes.md](ai-accelerator/ai_accel_notes.md) | [図解+ロードマップ](https://mstk13.github.io/MANABI/ai-accelerator/ai_accel.html) |
+| **HW/RTL設計の要点**: NoC・検証(UVM)・PPA(多コア+NoC型アクセラレータ向け) | [hw-rtl/hw_rtl_notes.md](hw-rtl/hw_rtl_notes.md) | [図解](https://mstk13.github.io/MANABI/hw-rtl/hw_rtl.html) |
 
 ## 追加のしかた
 1. `トピック名/note.md` を作って書く(図が要れば同じフォルダに `.html`)。
