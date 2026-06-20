@@ -1,10 +1,11 @@
 # MANABI — 学びノート
 
-半導体・コンピュータアーキテクチャ等の学習メモ置き場。Markdown はそのまま GitHub で読め、
-図(HTML)は GitHub Pages(`https://mstk13.github.io/MANABI/`)でインタラクティブに開ける。
+**Claude(AI)と一緒に学んだことを、自分用にまとめて蓄積していく場所。**
+半導体・コンピュータアーキテクチャ等のトピックを、セッションごとに `.md`(+図 `.html`)で残す。
+Markdown は GitHub でそのまま読め、図(HTML)は GitHub Pages(`https://mstk13.github.io/MANABI/`)でインタラクティブに開ける。
 
-> 関連: 設計プロジェクト本体は [mstk13/SHISAKU](https://github.com/mstk13/SHISAKU)。
-> こちら(MANABI)は「学んだことのまとめ」を蓄積する。
+> 関連: 設計プロジェクト本体は [mstk13/SHISAKU](https://github.com/mstk13/SHISAKU)(作る場所)。
+> こちら **MANABI は「学びの蓄積」**(理解のまとめ)。役割を分けて運用する。
 
 ## 目次
 | トピック | ノート | 図(ブラウザ) |
