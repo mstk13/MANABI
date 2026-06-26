@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ECCを実際に作るときの落とし穴 — レビュー指摘を平易に</title>
+<style>
+  :root{--navy:#122a4a;--blue:#1f6fb2;--green:#1e8e4f;--amber:#c97a0e;
+    --red:#c0392b;--grey:#555b66;--lgrey:#eef1f5;--cream:#fbf0c9;--line:#dde3ea;}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"Segoe UI","Yu Gothic UI","Meiryo",sans-serif;color:#22272e;background:#f4f6f9;line-height:1.75}
+  header{background:linear-gradient(135deg,#122a4a,#1f5c8a);color:#fff;padding:28px 6%}
+  header h1{margin:0 0 6px;font-size:24px} header p{margin:0;color:#c9d6e5;font-size:14px}
+  main{max-width:1080px;margin:0 auto;padding:20px 6% 80px}
+  section{background:#fff;border:1px solid var(--line);border-radius:10px;padding:22px 26px;margin:20px 0;box-shadow:0 1px 3px rgba(0,0,0,.04)}
+  h2{color:var(--navy);border-left:5px solid var(--blue);padding-left:12px;margin:0 0 6px;font-size:21px}
+  .sub{color:var(--grey);font-size:13.5px;margin:0 0 14px}
+  h3{color:var(--navy);font-size:16px;margin:20px 0 6px}
+  code{background:var(--lgrey);padding:1px 6px;border-radius:4px;font-family:"Consolas",monospace;font-size:.9em;color:#0b3d62}
+  .key{background:#eaf5ee;border-left:4px solid var(--green);padding:10px 14px;border-radius:6px;margin:10px 0;font-size:14px}
+  .note{background:#fff8e6;border-left:4px solid var(--amber);padding:10px 14px;border-radius:6px;margin:10px 0;font-size:13.5px}
+  .bad{background:#fdeceb;border-left:4px solid var(--red);padding:10px 14px;border-radius:6px;margin:10px 0;font-size:13.5px}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:16px}@media(max-width:760px){.two{grid-template-columns:1fr}}
+  table{border-collapse:collapse;width:100%;margin:10px 0;font-size:13.5px}
+  th{background:#1f5c8a;color:#fff;padding:8px;text-align:left} td{padding:7px 9px;border:1px solid var(--line);vertical-align:top}
+  .pill{display:inline-block;padding:1px 9px;border-radius:11px;font-size:12px;font-weight:700;color:#fff}
+  .p-cpu{background:#1f6fb2}.p-ai{background:#7a5da0}.p-both{background:#c97a0e}
+  .fig{background:#fbfcfe;border:1px solid var(--line);border-radius:8px;padding:14px;margin:12px 0;text-align:center}
+  .cap{color:var(--grey);font-size:12.5px;margin-top:6px}
+  .q{font-weight:700;color:var(--red)} .a{font-weight:700;color:var(--green)}
+  dl{margin:0} dt{font-weight:700;color:var(--navy);margin-top:10px} dd{margin:2px 0 0;color:#333;font-size:13.5px}
+  svg{max-width:100%;height:auto} .lab{font:600 12px "Segoe UI";fill:#22272e} .sm{font:11px "Segoe UI";fill:#555b66} .labw{font:600 12px "Segoe UI";fill:#fff}
+</style>
+</head>
+<body>
+<header>
+  <h1>ECCを実際に作るときの落とし穴</h1>
+  <p>ロケット向けの2つのECC仕様（制御CPU用・AIアクセラレータ用）のレビューで出た指摘を、専門用語をかみ砕いて「何が問題で・なぜ・どう直すか」で整理</p>
+</header>
+<main>
+
+<section>
+  <h2>0. この文書のねらい</h2>
+  <p>ECC（メモリのビット化けを直す仕組み）の仕様を2つ作った：<b>①ロケットの制御CPU用</b>と<b>②AI異常検知アクセラレータ用</b>。
+  そのレビューで「ここは危ない／作り込み不足」という指摘が出た。本ページは、その指摘を<b>初学者でも分かる言葉</b>で、
+  「<span class="q">何が問題か</span> → なぜ → <span class="a">どう直すか</span>」の形でまとめたもの。</p>
+  <p class="sub">タグ：<span class="pill p-cpu">制御CPU</span> <span class="pill p-ai">AIアクセラレータ</span> <span class="pill p-both">両方共通</span></p>
+</section>
+
+<section>
+  <h2>用語ミニ辞典（先に読むと楽）</h2>
+  <dl class="two" style="display:grid">
+    <div>
+      <dt>ECC</dt><dd>メモリの「ビット化け」を検出・訂正する仕組み。パリティ（誤り検出）の強化版。</dd>
+      <dt>ビット化け（SEU）</dt><dd>放射線などで 0↔1 が勝手に反転する現象。宇宙で起きやすい。</dd>
+      <dt>SECDED</dt><dd>ECCの方式。<b>1ビット化けなら直す／2ビット化けなら気づく（直せない）</b>。</dd>
+      <dt>MBU（多重化け）</dt><dd>1発の放射線で<b>隣り合う複数ビット</b>が同時に化ける。</dd>
+      <dt>レジスタファイル（RF）</dt><dd>CPUが計算で<b>毎サイクル使う超高速の小さなメモリ</b>。「RF」は Register File の略。一番速さに効く場所。</dd>
+      <dt>フリップフロップ（FF）</dt><dd>1ビットを覚える<b>最小の記憶回路</b>。レジスタファイルやCPU内部の状態はFFの集まり。</dd>
+      <dt>耐性FF（DICE等）</dt><dd>放射線で化けにくい<b>特殊なFF</b>。同じビットを<b>二重に持ち合い</b>、1か所が殴られても元に戻る。レジスタをECCの代わりに守れる（DICE = Dual Interlocked storage CEll）。</dd>
+      <dt>SRAM</dt><dd>チップ内の作業用メモリ。レジスタより大きく、少し遅い。</dd>
+      <dt>TCM</dt><dd>CPU直結の高速メモリ（Tightly-Coupled Memory）。キャッシュと違い<b>必ず一定時間で読める</b>（当たり外れが無い）ので、決定論が要る制御系向き。</dd>
+    </div>
+    <div>
+      <dt>ロックステップ</dt><dd>同じ計算を<b>2つのCPUで並走</b>させ、答えが違えば「異常」と気づく仕組み。</dd>
+      <dt>インターリーブ</dt><dd>隣り合うビットを<b>物理的に離して配置</b>すること。MBU対策。</dd>
+      <dt>ゴールデンコピー</dt><dd>「正しい値の原本」を<b>壊れにくい別の場所</b>に持っておくこと。</dd>
+      <dt>WCET</dt><dd>「最悪でも何サイクルで終わるか」の保証。リアルタイム制御に必須。</dd>
+      <dt>パイプライン</dt><dd>処理を流れ作業に分けて段数を増やし、クロック（速度）を上げる手法。</dd>
+      <dt>重み / 活性化</dt><dd>AIの「学習済みパラメータ（重み）」と「計算途中のデータ（活性化）」。</dd>
+      <dt>パリティ</dt><dd>ビット化けを<b>検出だけ</b>できる最小の仕組み。データの全ビットを足して偶数/奇数を1ビットで記録 → 1ビット化けると偶奇が合わず気づける（直せはしない）。ECCはこれを強化したもの。</dd>
+      <dt>シンドローム</dt><dd>ECCが計算する「<b>どこが化けたかを指す番号</b>」。0なら正常、0以外ならその値が化けたビット位置を表す。</dd>
+      <dt>不揮発メモリ</dt><dd>電源を切っても<b>消えない</b>メモリ（フラッシュ等）。重みの原本（ゴールデンコピー）の置き場所に使う。</dd>
+      <dt>フラックス</dt><dd>放射線が<b>どれだけ飛んでくるか</b>の量（単位時間・面積あたりの粒子数）＝「化けやすさ」。</dd>
+      <dt>断面積</dt><dd>メモリセル1個が放射線に<b>当たって化ける“的の大きさ”</b>＝「当たりやすさ」。フラックス×断面積で化ける頻度が出る。</dd>
+      <dt>スクラビング</dt><dd>背景で全メモリを定期的に<b>読む→ECCで直す→書き戻す</b>。化けが溜まる前に掃除する仕組み。</dd>
+    </div>
+  </dl>
+</section>
+
+<section>
+  <h2>1. 制御CPU用ECCへの指摘 <span class="pill p-cpu">制御CPU</span></h2>
+  <p class="sub">ロケットのエンジン・誘導を動かすCPU。「いつも同じ速さで・止まらず動く」が命。</p>
+
+  <h3>① レジスタファイル“全部”にECCは、かえって遅くする</h3>
+  <div class="bad"><span class="q">問題：</span>レジスタファイルはCPUが毎サイクル触る一番速い場所。そこにECCのチェック計算を挟むと、その分だけ<b>CPUの最高速度が落ち、全命令が遅くなる</b>。</div>
+  <p>なぜ：ECCは「読んだ値を点検して必要なら直す」ひと手間。小さく超高速な場所では、このひと手間が相対的に重くのしかかる。</p>
+  <div class="key"><span class="a">どう直す：</span>適材適所にする。レジスタファイルは<b>放射線に強い特殊なフリップフロップ</b>や<b>軽い検出（パリティ）</b>で守り、本格的なECC（SECDED）は少し大きいメモリ（SRAM/TCM）に使う。</div>
+
+  <h3>② 「2ビット化けはロックステップで乗り切る」は、メモリには効かない</h3>
+  <div class="bad"><span class="q">問題：</span>ロックステップは「2つのCPUの答えを見比べて違いに気づく」仕組み。でも<b>両CPUが同じメモリを読む</b>と、メモリの化けは両方とも同じく食らうので、答えが一致してしまい<b>気づけない</b>。</div>
+  <div class="fig">
+    <svg viewBox="0 0 560 170" role="img" aria-label="共有メモリの2ビット化けはロックステップで気づけない図">
+      <rect x="30" y="30" width="120" height="50" rx="6" fill="#1f6fb2"/><text x="90" y="60" text-anchor="middle" class="labw">CPU A</text>
+      <rect x="30" y="100" width="120" height="50" rx="6" fill="#1f6fb2"/><text x="90" y="130" text-anchor="middle" class="labw">CPU B</text>
+      <rect x="240" y="65" width="150" height="50" rx="6" fill="#c0392b"/><text x="315" y="86" text-anchor="middle" class="labw">共有メモリ</text><text x="315" y="103" text-anchor="middle" class="smw" style="fill:#fff">2ビット化け</text>
+      <line x1="150" y1="55" x2="240" y2="80" stroke="#555" stroke-width="2"/><line x1="150" y1="125" x2="240" y2="100" stroke="#555" stroke-width="2"/>
+      <rect x="440" y="65" width="100" height="50" rx="6" fill="#eef1f5" stroke="#dde3ea"/><text x="490" y="88" text-anchor="middle" class="lab">比較</text><text x="490" y="105" text-anchor="middle" class="sm">「一致」=見逃し</text>
+      <line x1="390" y1="90" x2="440" y2="90" stroke="#555" stroke-width="2"/>
+    </svg>
+    <div class="cap">両CPUが同じ化けた値を読む → 答えが一致 → 異常に気づけない</div>
+  </div>
+  <div class="key"><span class="a">どう直す：</span>役割を分ける。<b>CPUの計算ミス＝ロックステップ</b>、<b>メモリの化け＝ECC＋原本（ゴールデンコピー）から読み直し</b>。メモリの2ビット化けは「正しい原本から再読込」「その領域をリセット」で復旧する。</div>
+
+  <h3>③ ECCを「同じ1サイクルに詰め込む」と速度が落ちることがある</h3>
+  <div class="bad"><span class="q">問題：</span>メモリ読み出しとECC計算を同じ1サイクルでやると、合計時間が伸びて<b>クロックを上げられない</b>ことがある。</div>
+  <div class="key"><span class="a">どう直す：</span>実際に合成して速度を測り、入らなければ流れ作業（パイプライン）を1段足す。ただし制御では「いつも同じ時間で終わる」が大事なので<b>段数は固定</b>にする（誤りの有無で時間が変わってはいけない）。</div>
+</section>
+
+<section>
+  <h2>2. AIアクセラレータ用ECCへの指摘 <span class="pill p-ai">AIアクセラレータ</span></h2>
+  <p class="sub">センサ/エンジンの異常を見つけるAI。誤りに比較的強いが「異常の見逃し」だけは絶対に避けたい。</p>
+
+  <h3>① 「AIは1ビットくらい化けても平気」は“だいたい”の話</h3>
+  <div class="bad"><span class="q">問題：</span>AIは多少の誤差を吸収しやすい。でも数値の<b>上位ビット（大きい桁）</b>が化けると値が桁違いに変わり、<b>異常判定が逆転</b>しうる。一番まずいのは「本当の異常を見逃す」こと。</div>
+  <div class="key"><span class="a">どう直す：</span>計算途中のデータ（活性化）も<b>最低限の保護は残す</b>。軽くするなら「上位ビットだけ厚く守る」。「平均では平気」を理由に保護を外しすぎない。</div>
+
+  <h3>② 「壊れた重みを読み直す」── どこから？</h3>
+  <div class="bad"><span class="q">問題：</span>重み（AIの学習済みパラメータ）が2ビット化けて直せないとき、<b>「正しい重み」がどこにも無ければ復旧できない</b>。仕様に「再ロードする」とだけ書いても、原本の場所が無い。</div>
+  <div class="key"><span class="a">どう直す：</span>重みの<b>原本（ゴールデンコピー）を壊れにくい別メモリ（不揮発）</b>に持ち、そこから再ロードする経路を仕様に明記する。</div>
+
+  <h3>③ 「小分け」と「インターリーブ」は二重投資かも</h3>
+  <div class="bad"><span class="q">問題：</span>広いデータを小分けにしてECCをかける（分割）のも、ビットを離して置く（インターリーブ）のも、どちらも「1発で2ビット死ぬ」対策。短時間の飛行なら原因はほぼ<b>MBU（隣接同時化け）だけ</b>なので、インターリーブだけで足り、両方やると<b>面積のムダ</b>になりうる。</div>
+  <div class="key"><span class="a">どう直す：</span>「何の多重化けを想定するか」を先に決める。<b>短時間＝インターリーブ優先で容量節約</b>、長時間で累積も想定するなら分割も足す、と必要な分だけにする。</div>
+  <div class="note">補足：累算器（計算の足し込みレジスタ）は毎サイクル変わるので、ECCより<b>軽い検出や再計算</b>で守るのが自然。ECCの対象から外す。</div>
+</section>
+
+<section>
+  <h2>3. 両方に共通する“穴” <span class="pill p-both">両方共通</span></h2>
+
+  <h3>★ ① 「どれくらい化けるか」の数字が無い（最重要）</h3>
+  <div class="bad"><span class="q">問題：</span>「宇宙は化けやすいからSECDED」「短時間だからスクラブ不要」と<b>言葉では言える</b>が、実際に1回の飛行で何ビット化ける見込みか<b>数字が無い</b>。数字が無いと「SECDEDで足りる／足りない」を誰も検証できない。</div>
+  <div class="fig">
+    <svg viewBox="0 0 620 70" role="img" aria-label="化ける量の見積もり式">
+      <rect x="10" y="15" width="120" height="40" rx="6" fill="#eef1f5" stroke="#dde3ea"/><text x="70" y="33" text-anchor="middle" class="lab">化けやすさ</text><text x="70" y="48" text-anchor="middle" class="sm">フラックス</text>
+      <text x="140" y="40" class="lab">×</text>
+      <rect x="160" y="15" width="120" height="40" rx="6" fill="#eef1f5" stroke="#dde3ea"/><text x="220" y="33" text-anchor="middle" class="lab">当たりやすさ</text><text x="220" y="48" text-anchor="middle" class="sm">断面積</text>
+      <text x="290" y="40" class="lab">×</text>
+      <rect x="310" y="15" width="100" height="40" rx="6" fill="#eef1f5" stroke="#dde3ea"/><text x="360" y="38" text-anchor="middle" class="lab">ビット数</text>
+      <text x="420" y="40" class="lab">×</text>
+      <rect x="440" y="15" width="100" height="40" rx="6" fill="#eef1f5" stroke="#dde3ea"/><text x="490" y="38" text-anchor="middle" class="lab">飛行時間</text>
+      <text x="550" y="40" class="lab">≈ 化ける数</text>
+    </svg>
+    <div class="cap">ラフでよい。この1枚が「方式選び・スクラブ要否」すべての判断の背骨になる</div>
+  </div>
+  <div class="key"><span class="a">どう直す：</span>上の式でざっくり見積もる。これがあれば「SECDEDで十分／DEC（2ビット訂正）が必要」「スクラブ要る／要らない」が<b>根拠つきで言える</b>。</div>
+
+  <h3>② 「正しい原本」をどこに置くか（復旧の出どころ）</h3>
+  <div class="bad"><span class="q">問題：</span>制御CPUのメモリ2ビット化けも、AIの重み2ビット化けも、「直せないときどうする」が曖昧。原本が無ければ復旧不能。</div>
+  <div class="key"><span class="a">どう直す：</span>両方とも<b>ゴールデンコピー（壊れにくい原本）</b>の置き場所と読み直し手順を仕様に書く。</div>
+
+  <h3>③ 「書き込むとき」のパリティ作りが未記載</h3>
+  <div class="bad"><span class="q">問題：</span>仕様は「読むときに直す」話が中心で、<b>書くときにECC用の符号（パリティ）を作って一緒に保存する</b>経路が書かれていない。</div>
+  <div class="key"><span class="a">どう直す：</span>書き込み側（エンコード）の経路とタイミングも仕様に含める。</div>
+</section>
+
+<section>
+  <h2>4. まとめ（問題 → どう直す）</h2>
+  <table>
+    <tr><th>対象</th><th>問題（ひとこと）</th><th>どう直す</th></tr>
+    <tr><td><span class="pill p-cpu">CPU</span></td><td>レジスタ全部にECC＝遅くなる</td><td>レジスタは耐性FF/パリティ、ECCは大きめメモリに</td></tr>
+    <tr><td><span class="pill p-cpu">CPU</span></td><td>共有メモリの化けはロックステップで気づけない</td><td>メモリ化けはECC＋原本から読み直し（役割分担）</td></tr>
+    <tr><td><span class="pill p-cpu">CPU</span></td><td>ECCを同一サイクルに詰めると速度低下</td><td>合成で測り、必要なら固定段数で1段に分ける</td></tr>
+    <tr><td><span class="pill p-ai">AI</span></td><td>「AIは誤りに強い」は平均の話</td><td>上位ビットは守る。見逃しを出さない</td></tr>
+    <tr><td><span class="pill p-ai">AI</span></td><td>壊れた重みの原本が無い</td><td>不揮発に重みの原本を置き再ロード</td></tr>
+    <tr><td><span class="pill p-ai">AI</span></td><td>分割＋インターリーブが二重投資</td><td>想定する多重化けに合わせ必要分だけ</td></tr>
+    <tr><td><span class="pill p-both">共通</span></td><td>★化ける量の数字が無い</td><td>フラックス×断面積×ビット×時間で見積もる</td></tr>
+    <tr><td><span class="pill p-both">共通</span></td><td>復旧の原本の置き場所が曖昧</td><td>ゴールデンコピーと読み直し手順を明記</td></tr>
+    <tr><td><span class="pill p-both">共通</span></td><td>書き込み時の符号生成が未記載</td><td>エンコード経路も仕様に入れる</td></tr>
+  </table>
+  <div class="key"><b>いちばんの学び：</b>ECCは「方式を選ぶ」より、<b>適材適所（速い場所には軽い保護）</b>・<b>復旧の原本</b>・<b>“どれだけ化けるか”の数字</b>の3つで設計の良し悪しが決まる。</div>
+</section>
+
+</main>
+</body>
+</html>
