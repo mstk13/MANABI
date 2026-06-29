@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>キャッシュコヒーレンス状態機械(MSI→MOESI)— クリックで遷移</title>
+<style>
+  :root{--bg:#0f1420;--card:#171d2b;--ink:#e6ebf5;--sub:#9fb0c8;--line:#222c41;--code:#0c111c;
+    --I:#5b6680;--S:#7ea8ff;--E:#37d67a;--M:#ff6b8b;--O:#ffaf45;--hi:#ffffff}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,"Segoe UI",Roboto,"Hiragino Kaku Gothic ProN",Meiryo,sans-serif;
+    line-height:1.6;padding:24px}
+  .wrap{max-width:900px;margin:0 auto}
+  h1{font-size:21px;margin:0 0 4px}
+  .lead{color:var(--sub);font-size:14px;margin:0 0 14px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;margin:14px 0}
+  .stagebox{position:relative;width:100%;aspect-ratio:680/340}
+  svg{position:absolute;inset:0;width:100%;height:100%}
+  .ev{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0}
+  button{background:#202a3d;color:var(--ink);border:1px solid #33415c;border-radius:9px;
+    padding:9px 14px;font-size:14px;cursor:pointer}
+  button:hover{background:#27344c}
+  button.load{border-color:var(--S)} button.store{border-color:var(--M)}
+  button.snpS{border-color:var(--O)} button.snpU{border-color:var(--E)}
+  label.chk{font-size:13px;color:var(--sub);display:flex;align-items:center;gap:5px;cursor:pointer}
+  .narr{background:var(--code);border:1px solid var(--line);border-radius:8px;padding:11px 13px;
+    font-size:14px;color:#cfe0ff;min-height:40px;margin-top:6px}
+  .hist{font-family:ui-monospace,monospace;font-size:14px;color:#cdd9ef;margin:8px 0 0}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12.5px;color:var(--sub);margin-top:8px}
+  .dot{display:inline-block;width:11px;height:11px;border-radius:50%;vertical-align:-1px;margin-right:4px}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:8px}
+  td,th{border:1px solid #2a3550;padding:5px 7px;text-align:center}
+  th{color:var(--sub)}
+  a{color:var(--S)}
+  code{font-family:ui-monospace,monospace;background:var(--code);border:1px solid var(--line);border-radius:5px;padding:1px 5px;font-size:12.5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>キャッシュコヒーレンス状態機械 — クリックで遷移(MSI→MOESI)</h1>
+  <p class="lead">1つのキャッシュライン(コア側=RN)の状態が、操作で I→S→E→M→O とどう動くかを体験。
+    下のボタン(<b>読む/書く/スヌープ受信</b>)を押すと、現在状態から遷移する。
+    CHI名: I=I / S=<b>SC</b> / E=<b>UC</b> / M=<b>UD</b> / O=<b>SD</b>。</p>
+
+  <div class="card">
+    <div class="stagebox" id="stage"><svg id="svg" viewBox="0 0 680 340"></svg></div>
+    <div class="ev">
+      <button class="load" onclick="ev('Load')">読む(Load)</button>
+      <button class="store" onclick="ev('Store')">書く(Store)</button>
+      <button class="snpS" onclick="ev('SnpShared')">SnpShared 受信</button>
+      <button class="snpU" onclick="ev('SnpUnique')">SnpUnique 受信</button>
+      <label class="chk"><input type="checkbox" id="others"> 他コアが保持中(Load時 S/E を分ける)</label>
+      <button onclick="reset()">↺ I に戻す</button>
+    </div>
+    <div class="narr" id="narr">「読む(Load)」から始めてみよう。他コアが持っていなければ <b>E(独占)</b>、持っていれば <b>S(共有)</b> になる。</div>
+    <div class="hist" id="hist">経路: I</div>
+    <div class="legend">
+      <span><span class="dot" style="background:var(--I)"></span>I 無効</span>
+      <span><span class="dot" style="background:var(--S)"></span>S 共有(SC)</span>
+      <span><span class="dot" style="background:var(--E)"></span>E 独占clean(UC)</span>
+      <span><span class="dot" style="background:var(--M)"></span>M 変更(UD)</span>
+      <span><span class="dot" style="background:var(--O)"></span>O 共有dirty(SD)</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h1 style="font-size:16px">状態遷移表(RN側)</h1>
+    <table>
+      <tr><th>現状態</th><th>読む(Load)</th><th>書く(Store)</th><th>SnpShared受信</th><th>SnpUnique受信</th></tr>
+      <tr><td><b style="color:var(--I)">I</b></td><td>S または <b>E</b>(独占)</td><td>M(ReadUnique)</td><td>I</td><td>I</td></tr>
+      <tr><td><b style="color:var(--S)">S</b></td><td>S(ヒット)</td><td>M(他を無効化)</td><td>S</td><td><b>I</b></td></tr>
+      <tr><td><b style="color:var(--E)">E</b></td><td>E(ヒット)</td><td><b style="color:var(--M)">M(silent!バス無し)</b></td><td>S</td><td>I</td></tr>
+      <tr><td><b style="color:var(--M)">M</b></td><td>M(ヒット)</td><td>M(ヒット)</td><td><b style="color:var(--O)">O(書戻し無し)</b></td><td>I(データ提供)</td></tr>
+      <tr><td><b style="color:var(--O)">O</b></td><td>O(ヒット)</td><td>M(S群を無効化)</td><td>O(供給継続)</td><td>I(データ提供)</td></tr>
+    </table>
+    <p class="lead" style="margin:8px 0 0"><b>E の旨味</b>: 読んだ直後に書くとき、自分しか持たないと分かっているので
+      <b>バス無しで M に昇格</b>(read-then-write が速い)。
+      <b>O の旨味</b>: M を誰かが読んだとき<b>メモリに書き戻さず O で供給</b>(書き戻し削減)。</p>
+    <p class="lead" style="margin:6px 0 0">実装(動く): <a href="https://github.com/mstk13/SHISAKU/blob/main/interconnect/coherence_min/moesi.py">moesi.py</a>(SHISAKU) /
+      概念: <a href="../chi-interconnect/chi_interconnect.html">CHI 図</a></p>
+  </div>
+</div>
+
+<script>
+const NS="http://www.w3.org/2000/svg";
+const N={ I:{x:110,y:170,c:"#5b6680"}, E:{x:340,y:70,c:"#37d67a"}, S:{x:340,y:270,c:"#7ea8ff"},
+          M:{x:570,y:70,c:"#ff6b8b"}, O:{x:570,y:270,c:"#ffaf45"} };
+const svg=document.getElementById('svg');
+let cur="I", hist=["I"];
+
+// transition: returns {to, msg}
+function trans(s, e, others){
+  const hit=t=>({to:s, msg:t});
+  if(e==="Load"){
+    if(s==="I") return others? {to:"S",msg:"Load: 他コアが保持→ <b>S(共有)</b> を取得。[REQ]ReadShared"}
+                              : {to:"E",msg:"Load: 自分だけ→ <b>E(独占clean)</b> を取得。後で書けば silent に M へ"};
+    return hit(`Load: state ${s} はヒット(バス無し・遷移なし)`);
+  }
+  if(e==="Store"){
+    if(s==="E") return {to:"M",msg:"Store: <b>E→M を silent 昇格</b>(自分だけと分かっているので<b>バス不要</b>)"};
+    if(s==="M") return hit("Store: M はヒット(ローカル書き・遷移なし)");
+    if(s==="I") return {to:"M",msg:"Store: I→M。[REQ]ReadUnique で独占取得"};
+    if(s==="S") return {to:"M",msg:"Store: S→M。[REQ]ReadUnique で<b>他コアを無効化</b>してから書く"};
+    if(s==="O") return {to:"M",msg:"Store: O→M。共有中のS群を無効化して独占"};
+  }
+  if(e==="SnpShared"){
+    if(s==="M") return {to:"O",msg:"SnpShared 受信: <b>M→O</b>。dirtyを保持したまま供給(<b>メモリ書き戻し省略</b>)"};
+    if(s==="E") return {to:"S",msg:"SnpShared 受信: E→S。clean なのでそのまま共有へ"};
+    if(s==="O") return hit("SnpShared 受信: O のまま供給(遷移なし)");
+    if(s==="S") return hit("SnpShared 受信: S のまま(遷移なし)");
+    if(s==="I") return hit("SnpShared 受信: I(持たない・遷移なし)");
+  }
+  if(e==="SnpUnique"){
+    if(s==="I") return hit("SnpUnique 受信: I(持たない・遷移なし)");
+    const prov = (s==="M"||s==="O")? "(dirtyを提供してから無効化)" : "";
+    return {to:"I",msg:`SnpUnique 受信: ${s}→<b>I</b> ${prov}`};
+  }
+}
+
+function draw(active){ // active = {from,to} or null
+  svg.innerHTML="";
+  // arrowhead defs
+  const defs=document.createElementNS(NS,"defs");
+  defs.innerHTML=`<marker id="ah" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto">
+    <path d="M0,0 L7,3 L0,6 Z" fill="#fff"/></marker>`;
+  svg.appendChild(defs);
+  // active edge
+  if(active && active.from!==active.to){
+    const a=N[active.from], b=N[active.to];
+    const mx=(a.x+b.x)/2, my=(a.y+b.y)/2 - 36;
+    const p=document.createElementNS(NS,"path");
+    p.setAttribute("d",`M ${a.x} ${a.y} Q ${mx} ${my} ${b.x} ${b.y}`);
+    p.setAttribute("fill","none");p.setAttribute("stroke","#fff");p.setAttribute("stroke-width","2.5");
+    p.setAttribute("marker-end","url(#ah)");p.setAttribute("opacity","0.9");
+    svg.appendChild(p);
+  } else if(active && active.from===active.to){
+    const a=N[active.from];
+    const p=document.createElementNS(NS,"path");
+    p.setAttribute("d",`M ${a.x-18} ${a.y-30} C ${a.x-50} ${a.y-80}, ${a.x+50} ${a.y-80}, ${a.x+18} ${a.y-30}`);
+    p.setAttribute("fill","none");p.setAttribute("stroke","#fff");p.setAttribute("stroke-width","2.5");
+    p.setAttribute("marker-end","url(#ah)");p.setAttribute("opacity","0.8");
+    svg.appendChild(p);
+  }
+  // nodes
+  for(const k in N){
+    const n=N[k];
+    const c=document.createElementNS(NS,"circle");
+    c.setAttribute("cx",n.x);c.setAttribute("cy",n.y);c.setAttribute("r",34);
+    c.setAttribute("fill", k===cur? n.c : "#1b2333");
+    c.setAttribute("stroke", n.c);c.setAttribute("stroke-width", k===cur?4:2);
+    svg.appendChild(c);
+    const t=document.createElementNS(NS,"text");
+    t.setAttribute("x",n.x);t.setAttribute("y",n.y+7);t.setAttribute("text-anchor","middle");
+    t.setAttribute("font-size","22");t.setAttribute("font-weight","700");
+    t.setAttribute("fill", k===cur? "#0c111c":"#dfe8ff");t.textContent=k;
+    svg.appendChild(t);
+  }
+}
+function ev(e){
+  const others=document.getElementById('others').checked;
+  const r=trans(cur,e,others);
+  const moved = r.to!==cur;
+  draw({from:cur,to:r.to});
+  document.getElementById('narr').innerHTML=r.msg;
+  if(moved){ cur=r.to; hist.push(cur); }
+  document.getElementById('hist').innerHTML="経路: "+hist.join(" → ");
+}
+function reset(){ cur="I"; hist=["I"]; draw(null);
+  document.getElementById('narr').innerHTML="I に戻した。";
+  document.getElementById('hist').innerHTML="経路: I"; }
+draw(null);
+</script>
+</body>
+</html>
