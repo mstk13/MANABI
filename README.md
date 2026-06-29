@@ -22,6 +22,7 @@
 | **ECC設計の落とし穴**: メモリのビット化けを直すECCを実際に作るときの注意点（制御CPU用/AIアクセラレータ用のレビュー指摘を平易に） | [ecc-design/ecc_design_notes.md](ecc-design/ecc_design_notes.md) | [図解](https://mstk13.github.io/MANABI/ecc-design/ecc_design.html) |
 | **物理設計(論理合成のあと)**: フロアプラン→配置→CTS→配線→署名/GDS。各段で slack がどう動くかを ORFS gcd 実測で追う | [physical-design/pd_notes.md](physical-design/pd_notes.md) | [図解](https://mstk13.github.io/MANABI/physical-design/pd.html) |
 | **シストリックアレイ(weight-stationary)**: AIアクセラの心臓。活性→・部分和↓を流しながら積和を貯める仕組みを3×3でアニメ。段数↔STA↔配置に接続 | [systolic-array/systolic_array_notes.md](systolic-array/systolic_array_notes.md) | [図解(再生可)](https://mstk13.github.io/MANABI/systolic-array/systolic_array.html) |
+| **Llama decoder 1層のGEMM分解**: 推論ターゲットの1層を分解→重みGEMM7本+Attnコア2本、演算の8〜9割がGEMM。各ステップの形/役割をクリックで | [llama-decoder/llama_decoder_notes.md](llama-decoder/llama_decoder_notes.md) | [図解(クリック可)](https://mstk13.github.io/MANABI/llama-decoder/llama_decoder_gemm.html) |
 
 ## 追加のしかた
 1. `トピック名/note.md` を作って書く(図が要れば同じフォルダに `.html`)。

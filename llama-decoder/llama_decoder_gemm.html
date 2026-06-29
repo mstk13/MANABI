@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Llama decoder 1層の GEMM 分解 — アクセラレータは何を計算するか</title>
+<style>
+  :root{
+    --bg:#0f1420; --card:#171d2b; --ink:#e6ebf5; --sub:#9fb0c8; --line:#222c41;
+    --gemmW:#7ea8ff;   /* 重みGEMM */
+    --gemmA:#ffaf45;   /* Attentionコア GEMM */
+    --vec:#5b6680;     /* 非GEMM(ベクタ/SFU) */
+    --res:#37d67a;     /* 残差 */
+    --code:#0c111c;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,"Segoe UI",Roboto,"Hiragino Kaku Gothic ProN",Meiryo,sans-serif;
+    line-height:1.65;padding:24px}
+  .wrap{max-width:980px;margin:0 auto}
+  h1{font-size:21px;margin:0 0 4px}
+  .lead{color:var(--sub);font-size:14px;margin:0 0 16px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;margin:14px 0}
+  .legend{display:flex;gap:16px;flex-wrap:wrap;font-size:13px;color:var(--sub);margin-bottom:6px}
+  .dot{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-1px;margin-right:5px}
+  .layout{display:grid;grid-template-columns:1fr 320px;gap:18px}
+  @media(max-width:820px){.layout{grid-template-columns:1fr}}
+
+  .flow{display:flex;flex-direction:column;align-items:stretch;gap:7px}
+  .blk{border:1px dashed #33415c;border-radius:12px;padding:10px;position:relative}
+  .blk .blkt{position:absolute;top:-9px;left:12px;background:var(--card);padding:0 7px;font-size:11.5px;color:var(--sub)}
+  .row{display:flex;gap:7px;justify-content:center;flex-wrap:wrap}
+  .node{flex:1;min-width:84px;border-radius:10px;padding:9px 8px;text-align:center;font-size:12.5px;
+    cursor:pointer;border:1px solid transparent;transition:.15s;user-select:none}
+  .node small{display:block;font-size:10.5px;opacity:.8;margin-top:2px}
+  .node .badge{display:inline-block;font-size:10px;font-weight:700;border-radius:5px;padding:0 5px;margin-bottom:3px}
+  .gemmW{background:rgba(126,168,255,.14);border-color:rgba(126,168,255,.5)}
+  .gemmW .badge{background:var(--gemmW);color:#0c111c}
+  .gemmA{background:rgba(255,175,69,.14);border-color:rgba(255,175,69,.5)}
+  .gemmA .badge{background:var(--gemmA);color:#0c111c}
+  .vec{background:rgba(91,102,128,.16);border-color:rgba(91,102,128,.55);color:#c4cde0}
+  .res{background:rgba(55,214,122,.13);border-color:rgba(55,214,122,.5);color:#bff3d4}
+  .node:hover{filter:brightness(1.25)}
+  .node.sel{box-shadow:0 0 0 2px #fff inset}
+  .arrow{text-align:center;color:#46536f;font-size:13px;line-height:1}
+
+  .panel{background:var(--code);border:1px solid var(--line);border-radius:12px;padding:14px;height:fit-content;
+    position:sticky;top:18px}
+  .panel h3{margin:0 0 6px;font-size:15px}
+  .panel .k{font-size:11px;font-weight:700;border-radius:5px;padding:1px 7px;color:#0c111c}
+  .panel .shape{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;color:#cdd9ef;
+    background:#11192a;border:1px solid var(--line);border-radius:7px;padding:8px 10px;margin:8px 0}
+  .panel p{font-size:13px;color:#cdd9ef;margin:6px 0}
+  .panel .sub{color:var(--sub);font-size:12.5px}
+
+  .bar{display:flex;height:26px;border-radius:7px;overflow:hidden;border:1px solid var(--line);margin:8px 0}
+  .bar>div{display:flex;align-items:center;justify-content:center;font-size:11.5px;font-weight:700;color:#0c111c}
+  table{width:100%;border-collapse:collapse;font-size:13px;margin-top:6px}
+  td,th{border:1px solid #2a3550;padding:5px 8px}
+  th{color:var(--sub);font-weight:600}
+  a{color:var(--gemmW)}
+  .mono{font-family:ui-monospace,monospace}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Llama decoder 1層の GEMM 分解 — アクセラレータは何を計算するか</h1>
+  <p class="lead">ターゲット = <b>Llama 系 dense decoder transformer の推論</b>(bring-up は 1B 級)。
+    1層を分解すると重い計算は <b>7本の重みGEMM + Attentionコア2本</b>。<b>演算の8〜9割が GEMM(行列積)</b>なので、
+    アレイは GEMM を空間展開すれば効く。<b>ノードをクリック</b>すると右に詳細が出ます。</p>
+
+  <div class="card">
+    <div class="legend">
+      <span><span class="dot" style="background:var(--gemmW)"></span>重みGEMM(①〜③⑥⑦⑧⑨=7本)</span>
+      <span><span class="dot" style="background:var(--gemmA)"></span>Attentionコア GEMM(④⑤)</span>
+      <span><span class="dot" style="background:var(--vec)"></span>非GEMM(正規化/RoPE/softmax/活性=ベクタ/SFU)</span>
+      <span><span class="dot" style="background:var(--res)"></span>残差加算</span>
+    </div>
+
+    <div class="layout">
+      <!-- dataflow -->
+      <div class="flow" id="flow">
+        <div class="node vec" data-id="in">入力 x<small>[S, 2048]</small></div>
+        <div class="arrow">▼</div>
+
+        <div class="blk"><span class="blkt">Self-Attention ブロック</span>
+          <div class="node vec" data-id="rms1">RMSNorm<small>正規化</small></div>
+          <div class="arrow">▼</div>
+          <div class="row">
+            <div class="node gemmW" data-id="q"><span class="badge">①</span>Q 射影<small>→[S,2048]</small></div>
+            <div class="node gemmW" data-id="k"><span class="badge">②</span>K 射影<small>→[S,512]</small></div>
+            <div class="node gemmW" data-id="v"><span class="badge">③</span>V 射影<small>→[S,512]</small></div>
+          </div>
+          <div class="arrow">▼</div>
+          <div class="node vec" data-id="rope">RoPE<small>Q,K に位置回転</small></div>
+          <div class="arrow">▼</div>
+          <div class="node gemmA" data-id="qk"><span class="badge">④</span>スコア QKᵀ<small>activation × activation</small></div>
+          <div class="arrow">▼</div>
+          <div class="node vec" data-id="sm">softmax<small>行方向に正規化</small></div>
+          <div class="arrow">▼</div>
+          <div class="node gemmA" data-id="av"><span class="badge">⑤</span>·V<small>activation × activation</small></div>
+          <div class="arrow">▼</div>
+          <div class="node gemmW" data-id="o"><span class="badge">⑥</span>O 射影<small>→[S,2048]</small></div>
+        </div>
+        <div class="node res" data-id="res1">+ 残差(x と加算)</div>
+        <div class="arrow">▼</div>
+
+        <div class="blk"><span class="blkt">FFN ブロック(SwiGLU)</span>
+          <div class="node vec" data-id="rms2">RMSNorm<small>正規化</small></div>
+          <div class="arrow">▼</div>
+          <div class="row">
+            <div class="node gemmW" data-id="gate"><span class="badge">⑦</span>gate 射影<small>→[S,8192]</small></div>
+            <div class="node gemmW" data-id="up"><span class="badge">⑧</span>up 射影<small>→[S,8192]</small></div>
+          </div>
+          <div class="arrow">▼</div>
+          <div class="node vec" data-id="silu">SiLU(gate) ⊙ up<small>活性化 + 要素積</small></div>
+          <div class="arrow">▼</div>
+          <div class="node gemmW" data-id="down"><span class="badge">⑨</span>down 射影<small>→[S,2048]</small></div>
+        </div>
+        <div class="node res" data-id="res2">+ 残差 → 次の層へ</div>
+      </div>
+
+      <!-- detail panel -->
+      <div class="panel" id="panel">
+        <h3 id="pt">ノードをクリック</h3>
+        <div id="pbody">
+          <p class="sub">各ボックスがLlama1層の1ステップ。色=計算の種類。
+            <b style="color:var(--gemmW)">青</b>と<b style="color:var(--gemmA)">橙</b>が行列積(GEMM)で、ここをアレイが担う。</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- why -->
+  <div class="card">
+    <h1 style="font-size:16px">なぜ「GEMMを空間展開」で効くのか</h1>
+    <p class="lead" style="margin:6px 0">1層の演算量の内訳(イメージ)。FFN(⑦⑧⑨)が最大で、GEMM が大半を占める。</p>
+    <div class="bar">
+      <div style="width:40%;background:var(--gemmW)">重みGEMM・FFN ~40%</div>
+      <div style="width:25%;background:#9cc0ff">重みGEMM・射影 ~25%</div>
+      <div style="width:20%;background:var(--gemmA)">Attnコア ~20%</div>
+      <div style="width:15%;background:var(--vec);color:#dfe8ff">非GEMM ~15%</div>
+    </div>
+    <p style="font-size:13.5px">→ 演算の<b>8〜9割が GEMM</b>。だから「積和(MAC)を N×N に空間展開した
+      <a href="../systolic-array/systolic_array.html">シストリックアレイ</a>」で GEMM を一気に流すのが一番効く。
+      非GEMM(15%)は小さなベクタ/特殊関数ユニットに任せる。</p>
+    <table>
+      <tr><th>段で律速が変わる</th><th>状況</th><th>効く対策</th></tr>
+      <tr><td><b>prefill</b>(プロンプト一括, S大)</td><td>同じ重みを S 本の活性で再利用 → <b>計算律速</b></td><td>アレイを埋める</td></tr>
+      <tr><td><b>decode</b>(1トークンずつ, S=1)</td><td>行列×ベクトル。重みを1回しか使わない → <b>メモリ帯域律速(memory wall)</b></td><td>量子化(INT8/INT4)+ダブルバッファ</td></tr>
+    </table>
+  </div>
+
+  <p class="lead">関連: <a href="../systolic-array/systolic_array.html">シストリックアレイ動作(3×3アニメ)</a> ·
+    <a href="../ai-accelerator/ai_accel_notes.md">AIアクセラレータ ロードマップ</a> ·
+    <a href="../physical-design/pd_notes.md">物理設計</a></p>
+</div>
+
+<script>
+// Llama 3.2 1B: d=2048, heads=32, kv_heads=8(GQA), head_dim=64, FFN=8192
+const D = {
+  in:{t:"入力 x",k:"vec",c:"#5b6680",s:"[S, 2048]",b:"トークン列(長さS)× hidden 2048。S=プロンプト長(prefill)または1(decode)。"},
+  rms1:{t:"RMSNorm(attn前)",k:"非GEMM",c:"#5b6680",s:"要素ごと",b:"各トークンベクトルを二乗平均で正規化。行列積ではない=ベクタ演算。アレイの仕事ではない。"},
+  q:{t:"① Q 射影",k:"重みGEMM",c:"#7ea8ff",s:"[S,2048] × [2048,2048] → [S,2048]",b:"クエリを作る。heads·head_dim = 32·64 = 2048。重み行列を据えて活性を流す=weight-stationaryの出番。"},
+  k:{t:"② K 射影",k:"重みGEMM",c:"#7ea8ff",s:"[S,2048] × [2048,512] → [S,512]",b:"キーを作る。GQA で kv_heads=8 なので幅が小さい(8·64=512)。KVキャッシュに保存される。"},
+  v:{t:"③ V 射影",k:"重みGEMM",c:"#7ea8ff",s:"[S,2048] × [2048,512] → [S,512]",b:"バリューを作る。K と同じく GQA で幅512。"},
+  rope:{t:"RoPE",k:"非GEMM",c:"#5b6680",s:"Q,K を回転",b:"位置情報を Q,K に回転として埋め込む。三角関数の要素演算=非GEMM。"},
+  qk:{t:"④ スコア QKᵀ",k:"Attnコア GEMM",c:"#ffaf45",s:"head毎 [S,64] × [64,S] → [S,S]",b:"クエリ×キーで注意スコア。重みではなく活性×活性。形が S に依存(動的)。長文ほど S² で重い。"},
+  sm:{t:"softmax",k:"非GEMM",c:"#5b6680",s:"行方向",b:"スコアを確率に正規化(exp と総和)。非GEMM=SFU(特殊関数)担当。"},
+  av:{t:"⑤ ·V(スコア×V)",k:"Attnコア GEMM",c:"#ffaf45",s:"head毎 [S,S] × [S,64] → [S,64]",b:"注意重みで V を加重平均。これも活性×活性のGEMM。"},
+  o:{t:"⑥ O 射影",k:"重みGEMM",c:"#7ea8ff",s:"[S,2048] × [2048,2048] → [S,2048]",b:"各ヘッドの出力を結合して hidden に戻す。重みGEMM。"},
+  res1:{t:"+ 残差(attn)",k:"残差",c:"#37d67a",s:"x + attn_out",b:"入力 x を足し戻す。学習安定化。加算のみ=非GEMM。"},
+  rms2:{t:"RMSNorm(FFN前)",k:"非GEMM",c:"#5b6680",s:"要素ごと",b:"FFN 前の正規化。ベクタ演算。"},
+  gate:{t:"⑦ gate 射影",k:"重みGEMM",c:"#7ea8ff",s:"[S,2048] × [2048,8192] → [S,8192]",b:"FFNを中間8192へ拡大(ゲート側)。一番大きいGEMMの一つ。FFNが1層FLOPsの過半。"},
+  up:{t:"⑧ up 射影",k:"重みGEMM",c:"#7ea8ff",s:"[S,2048] × [2048,8192] → [S,8192]",b:"中間8192へ拡大(値側)。gate と並列。"},
+  silu:{t:"SiLU(gate) ⊙ up",k:"非GEMM",c:"#5b6680",s:"要素積",b:"SiLU活性をgateに掛け、upと要素積。非GEMM。SwiGLUの中身。"},
+  down:{t:"⑨ down 射影",k:"重みGEMM",c:"#7ea8ff",s:"[S,8192] × [8192,2048] → [S,2048]",b:"中間8192をhidden2048へ縮小。FFN最後の大きなGEMM。"},
+  res2:{t:"+ 残差(FFN)",k:"残差",c:"#37d67a",s:"+ → 次層",b:"FFN出力を足し戻して次の decoder 層へ。"}
+};
+const panel=document.getElementById('panel');
+let sel=null;
+function show(id){
+  const d=D[id]; if(!d)return;
+  document.querySelectorAll('.node').forEach(n=>n.classList.remove('sel'));
+  const el=document.querySelector('.node[data-id="'+id+'"]'); if(el)el.classList.add('sel');
+  document.getElementById('pt').textContent=d.t;
+  document.getElementById('pbody').innerHTML=
+    `<span class="k" style="background:${d.c}">${d.k}</span>`+
+    `<div class="shape">${d.s}</div>`+
+    `<p>${d.b}</p>`;
+}
+document.querySelectorAll('.node').forEach(n=>{
+  n.addEventListener('click',()=>show(n.dataset.id));
+  n.addEventListener('mouseenter',()=>show(n.dataset.id));
+});
+show('gate'); // 既定で最大GEMMを表示
+</script>
+</body>
+</html>
