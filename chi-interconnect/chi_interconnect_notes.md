@@ -128,5 +128,48 @@ OpenLLC は HN を ~14 モジュールに分割。自作 [`hn_node.sv`](https://
 → 学び方:自作で「**直列1件・2コア・1ライン**」を理解 → OpenLLC で「**パイプライン・多コア・多ライン・flit層**」へ拡張、と読むと迷子にならない。
 ソース一覧: https://github.com/OpenXiangShan/OpenLLC/tree/master/src/main/scala/openLLC
 
+## 10. OpenLLC 読み解き(本物のCHIホームノード/LLC, Chisel)
+
+### 全体構造(データフロー)
+```
+RN-F群 → RNLinkMonitor → MMIODiverger → RNXbar → Slices[N banks] → SNXbar → MMIOMerger → SNLinkMonitor → メモリ(SN)
+ (CHI 4ch)                (MMIO分岐)    (アドレスで    (各バンクが独立に              (下流集約)
+  TX:REQ,RSP                            バンク振分)    コヒーレンス処理)
+  RX:SNP,DAT
+```
+- RNポート=CHI 4チャネル(TX:REQ,RSP / RX:SNP,DAT)= 自作 `ev_type`/`provide_data` の本物。
+- **Slices(複数バンク)= アドレスで分割並列** = 「複数HN+アドレスハッシュ」の実体。
+- MMIODiverger=キャッシュ可/不可(MMIO)分岐。
+
+### ディレクトリは2種類(核心)
+LLC =「共有キャッシュ」かつ「スヌープフィルタ」なのでディレクトリが2つ:
+```scala
+class SelfMetaEntry   { val valid = Bool(); val dirty = Bool() }  // LLC自身の行(+タグ配列)
+class ClientMetaEntry { val valid = Bool() }                      // 各RNが持つか(numRN本=スヌープフィルタ)
+```
+- Self dir = 自作 `mem` の「キャッシュ付き」進化版。Client dir = 「誰が持つか台帳」の本物。
+- hit判定(3段SRAM): `hitVec = tagMatch && metaValid` → `hit_s3 = hitVec.orR`。
+- **置換(PLRU/random)** あり = LLCはキャッシュなので追い出しがある(toyに無し)。
+
+### MainPipe(6段)= 自作FSMの本物
+| 段 | 内容 | 自作 hn_node |
+|---|---|---|
+| stage2 | 要求受理 | ST_IDLE |
+| stage3 | **ディレクトリlookup+分類** | 相手stateを見る所 |
+| stage4 | **スヌープ/メモリ/comp発行**(`need_snoop_s4`) | ST_SNOOP+判断 |
+| stage5 | フォワード | — |
+| stage6 | **CompData(データ付応答)** | ST_GRANT |
+応答のCHI状態 = SC/UC/UD_PD/I(= S/E/M/I)。
+
+### 本物で初出の語彙(toyに無し)
+トランザクション: `ReadUnique`/`ReadNotSharedDirty`/`WriteBackFull`/`Evict`/`MakeInvalid`/`CleanInvalid`/`CleanShared`/`CompData`/下流`ReadNoSnp`/`WriteNoSnpFull`。
+構造: **self dir と client dir の分離**・**バンク分割(Slices)**・**置換(PLRU)**・**MMIO分岐**。
+
+### 読む順路
+1. `OpenLLC.scala`(top IO=CHI4chポート)→ 2. `Directory.scala`(`SelfMetaEntry`/`ClientMetaEntry`+`hitVec`)→ 3. `MainPipe.scala`(stage3 dir→stage4 snoop→stage6 comp)→ 4. `chi/`(REQ/RSP/SNP/DATのflit束)。
+ソース: https://github.com/OpenXiangShan/OpenLLC/tree/master/src/main/scala/openLLC
+
+> 芯は自作と同じ。違い=「直列1件→6段パイプライン」「相手state覗き→self+client 2ディレクトリ」「1ライン→多ライン+置換」「ev直結→CHI flit」。
+
 ## 関連
 [HW/RTL(NoC・検証・PPA)](../hw-rtl/hw_rtl_notes.md) / [コアレッシング/MSHR](../coalescing-mshr/coalescing_mshr_notes.md) / [キャッシュコヒーレンス状態機械](../cache-coherence/cache_coherence_notes.md)
