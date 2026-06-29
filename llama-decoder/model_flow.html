@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Transformer(Llama)の動き — Attentionで混ぜ、FFNで考える</title>
+<style>
+  :root{--bg:#0f1420;--card:#171d2b;--ink:#e6ebf5;--sub:#9fb0c8;--line:#222c41;
+    --attn:#ffaf45;--ffn:#7ea8ff;--res:#37d67a;--code:#0c111c;--tok:#202a3d}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,"Segoe UI",Roboto,"Hiragino Kaku Gothic ProN",Meiryo,sans-serif;
+    line-height:1.65;padding:24px}
+  .wrap{max-width:900px;margin:0 auto}
+  h1{font-size:21px;margin:0 0 4px}
+  .lead{color:var(--sub);font-size:14px;margin:0 0 14px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;margin:14px 0}
+
+  /* big picture strip */
+  .strip{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:12px;margin-bottom:6px}
+  .strip .s{background:var(--tok);border:1px solid #33415c;border-radius:8px;padding:6px 9px}
+  .strip .layer{background:rgba(126,168,255,.12);border-color:rgba(126,168,255,.5)}
+  .strip .arr{color:#46536f}
+
+  /* stage area */
+  .stagebox{position:relative;width:100%;height:240px;margin:6px 0;overflow:hidden}
+  svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+  .tok{position:absolute;width:96px;text-align:center;transition:.35s}
+  .tok .lab{font-size:13px;font-weight:700;color:#dfe8ff;margin-bottom:4px}
+  .tok .vec{display:flex;gap:2px;height:46px;align-items:flex-end;justify-content:center;
+    background:var(--tok);border:1px solid #33415c;border-radius:8px;padding:4px}
+  .tok .vec b{display:block;width:9px;background:var(--ffn);border-radius:2px 2px 0 0;transition:.35s}
+  .tok.focus .vec{border-color:var(--attn);box-shadow:0 0 0 2px rgba(255,175,69,.4)}
+  .tok.ffn .vec{border-color:var(--ffn);box-shadow:0 0 0 2px rgba(126,168,255,.45)}
+  .tok .role{font-size:10.5px;color:var(--sub);margin-top:3px;height:13px}
+
+  .controls{display:flex;gap:9px;align-items:center;justify-content:center;margin:8px 0 6px;flex-wrap:wrap}
+  button{background:var(--tok);color:var(--ink);border:1px solid #33415c;border-radius:9px;
+    padding:8px 13px;font-size:14px;cursor:pointer}
+  button:hover{background:#27344c}
+  button.primary{background:#2b62d6;border-color:#3b72e6}
+  .stagelab{font-family:ui-monospace,monospace;font-size:13px;color:#cdd9ef;min-width:150px;text-align:center}
+  .narr{background:var(--code);border:1px solid var(--line);border-radius:8px;padding:11px 13px;
+    font-size:14px;color:#cfe0ff;min-height:40px}
+  .tag{display:inline-block;font-size:11px;font-weight:700;border-radius:6px;padding:1px 8px;color:#0c111c;margin-right:6px}
+  .tag.a{background:var(--attn)} .tag.f{background:var(--ffn)} .tag.r{background:var(--res)}
+
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:680px){.two{grid-template-columns:1fr}}
+  .mini{border:1px solid var(--line);border-radius:10px;padding:12px 14px;font-size:13px}
+  .mini h3{margin:0 0 6px;font-size:15px}
+  .mini.a h3{color:var(--attn)} .mini.f h3{color:var(--ffn)}
+  a{color:var(--ffn)}
+  code{font-family:ui-monospace,monospace;background:var(--code);border:1px solid var(--line);
+    border-radius:5px;padding:1px 5px;font-size:12.5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Transformer(Llama)の動き — Attentionで「混ぜ」、FFNで「考える」</h1>
+  <p class="lead">1つの decoder 層がトークン列に何をするかを再生で追う。
+    キモは2つだけ:<b style="color:var(--attn)">Attention=トークン同士の通信(横に混ぜる)</b> /
+    <b style="color:var(--ffn)">FFN=各トークンを個別に変換(縦に考える)</b>。
+    これを16層積むと、最後のトークンから次の語を予測できる。</p>
+
+  <!-- big picture -->
+  <div class="card">
+    <div class="strip">
+      <span class="s">文 → トークン</span><span class="arr">→</span>
+      <span class="s">embedding(ベクトル化)</span><span class="arr">→</span>
+      <span class="s layer">decoder層 = Attention + FFN</span>
+      <span class="arr">×16 →</span>
+      <span class="s">次トークンを予測</span>
+    </div>
+    <p class="lead" style="margin:4px 0 0">下のアニメは、この「decoder層」1個の中身。<b>▶再生</b>か<b>次へ</b>で進む。</p>
+
+    <div class="stagebox" id="stagebox">
+      <svg id="svg" viewBox="0 0 640 240" preserveAspectRatio="xMidYMid meet"></svg>
+      <!-- tokens injected by JS -->
+    </div>
+
+    <div class="controls">
+      <button id="reset">↺ 最初へ</button>
+      <button id="prev">◀ 前へ</button>
+      <button id="play" class="primary">▶ 再生</button>
+      <button id="next">次へ ▶</button>
+      <span class="stagelab" id="slab"></span>
+    </div>
+    <div class="narr" id="narr"></div>
+  </div>
+
+  <!-- two pillars -->
+  <div class="card">
+    <div class="two">
+      <div class="mini a">
+        <h3>① Attention=通信(横に混ぜる)</h3>
+        <p>各トークンが<b>他の全トークンを見比べて</b>、関係の深い相手の情報を取り込む。
+        「それ」が「魚」を指す、のような<b>文脈</b>はここで作られる。</p>
+        <p class="lead" style="margin:6px 0 0">中身は <a href="llama_decoder_gemm.html">Q/K/V射影・QKᵀ・·V・O射影</a>
+        の行列積。トークン間に<b>線(注目度)</b>が張られるのが特徴。</p>
+      </div>
+      <div class="mini f">
+        <h3>② FFN=計算(縦に考える)</h3>
+        <p>混ぜた後、<b>各トークンを"単独で"</b>非線形変換して情報を深める。
+        トークン同士は<b>関わらない</b>(線が消える)。全トークンを並列処理できる。</p>
+        <p class="lead" style="margin:6px 0 0">中身は <a href="llama_decoder_gemm.html">gate/up→SiLU⊙→down</a>。
+        1層で<b>最大の計算量</b>(中間を8192へ拡大)。</p>
+      </div>
+    </div>
+    <p class="lead" style="margin:12px 0 0">この「混ぜる→考える」を1セットとして<b>16回</b>繰り返すうちに、
+    各トークンの意味がどんどん文脈で更新され、最後のトークンの状態が「次に来る語」を予測できるまで育つ。
+    各ステップの後には必ず <b style="color:var(--res)">残差(足し戻し)</b> が入って学習を安定させる。</p>
+  </div>
+
+  <p class="lead">関連: <a href="llama_decoder_gemm.html">1層のGEMM分解(計算の中身)</a> ·
+    <a href="../systolic-array/systolic_array.html">シストリックアレイ(GEMMを流す回路)</a> ·
+    <a href="llama_decoder_notes.md">ノート</a></p>
+</div>
+
+<script>
+// ---- tokens (5語の例)----
+const TOK = ["猫","が","魚","を","食べた"];
+const N = TOK.length;
+const HID = 4;                 // 表示用の超ミニ hidden 次元
+// 初期 embedding(固定の見栄え用ベクトル, 0..1)
+const emb = [
+  [.8,.3,.5,.2],[.2,.2,.3,.2],[.6,.7,.3,.5],[.2,.3,.2,.3],[.4,.4,.8,.6]
+];
+// 注目度(focus="食べた"=index4 が誰を見るか)。主語"猫"と目的語"魚"に強く。
+const attnRow = [0.34,0.04,0.32,0.05,0.25]; // 合計~1
+const FOCUS = 4;
+
+// token center coords in 640x240 viewBox
+const cx = i => 40 + i*120 + 48;   // 中心x
+const TOP = 120;                   // token の上端y(vec上)
+const APEX = 34;                   // 弧の頂点y
+
+// ---- build token DOM ----
+const box = document.getElementById('stagebox');
+const svg = document.getElementById('svg');
+function pxLeft(i){ return (cx(i)-48)/640*100; }  // %でレスポンシブに
+function buildTokens(){
+  TOK.forEach((t,i)=>{
+    const d=document.createElement('div'); d.className='tok'; d.id='tok'+i;
+    d.style.left=pxLeft(i)+'%'; d.style.top=(TOP/240*100)+'%';
+    d.innerHTML=`<div class="lab">${t}</div><div class="vec" id="vec${i}"></div><div class="role" id="role${i}"></div>`;
+    box.appendChild(d);
+  });
+}
+function drawVec(i,v){
+  const el=document.getElementById('vec'+i);
+  el.innerHTML=v.map(x=>`<b style="height:${Math.max(3,Math.round(x*40))}px"></b>`).join('');
+}
+
+// states of vectors per stage
+const mixed = emb.map((v,i)=>{
+  if(i!==FOCUS) return v.slice();
+  // focus の新ベクトル = Σ attn[j]*emb[j]
+  const o=[0,0,0,0];
+  for(let j=0;j<N;j++) for(let k=0;k<HID;k++) o[k]+=attnRow[j]*emb[j][k];
+  return o;
+});
+const afterFFN = mixed.map(v=> v.map(x=> Math.min(1, 0.3+0.9*x*x)) ); // 各トークン個別の非線形
+
+// ---- arcs ----
+function clearArcs(){ svg.innerHTML=''; }
+function arc(j,i,w,color,dash){
+  const x1=cx(j), x2=cx(i), y=TOP, ax=(x1+x2)/2, ay=APEX;
+  const p=document.createElementNS('http://www.w3.org/2000/svg','path');
+  p.setAttribute('d',`M ${x1} ${y} Q ${ax} ${ay} ${x2} ${y}`);
+  p.setAttribute('fill','none'); p.setAttribute('stroke',color);
+  p.setAttribute('stroke-width',(0.6+w*7).toFixed(2));
+  p.setAttribute('opacity',(0.25+w*0.75).toFixed(2));
+  if(dash) p.setAttribute('stroke-dasharray','4 4');
+  svg.appendChild(p);
+}
+function arcsEqual(){ clearArcs(); for(let j=0;j<N;j++) if(j!==FOCUS) arc(j,FOCUS,0.18,'#9fb0c8',true); }
+function arcsWeighted(){ clearArcs(); for(let j=0;j<N;j++) if(j!==FOCUS) arc(j,FOCUS,attnRow[j],'#ffaf45',false); }
+
+// ---- stages ----
+const stages = [
+  {lab:"0 入力",            t:"r", n:()=>{TOK.forEach((_,i)=>drawVec(i,emb[i]));clearArcs();setRoles();return '<span class="tag r">入力</span>文をトークンに分け、各トークンを数値ベクトル(embedding)にする。各バーが値。';}},
+  {lab:"1 RMSNorm",        t:"a", n:()=>{clearArcs();return '<span class="tag a">Attn前</span>各トークンのベクトルの大きさを整える(正規化)。中身は変えず計算を安定化。';}},
+  {lab:"2 Q/K/V を作る",    t:"a", n:()=>{clearArcs();setRoles({0:'',[FOCUS]:'Q=質問'});return '<span class="tag a">Attention</span>各トークンから Q(質問)・K(見出し)・V(中身)の3ベクトルを射影で作る。';}},
+  {lab:"3 スコア QKᵀ",      t:"a", n:()=>{arcsEqual();return '<span class="tag a">Attention</span>「食べた」の Q を、全トークンの K と見比べる(線)。まだ重みは均等。';}},
+  {lab:"4 softmax",        t:"a", n:()=>{arcsWeighted();setRoles({0:'主語',2:'目的語',[FOCUS]:'注目先を配分'});return '<span class="tag a">Attention</span>見比べた結果を「注目度(%)」に。主語「猫」と目的語「魚」が太い=強く注目。';}},
+  {lab:"5 混ぜる ·V",       t:"a", n:()=>{arcsWeighted();drawVec(FOCUS,mixed[FOCUS]);focus(FOCUS);return '<span class="tag a">Attention</span>注目度で各トークンの V を加重平均し、「食べた」に取り込む → ベクトルが更新(文脈が入る)。';}},
+  {lab:"6 O射影 +残差",     t:"r", n:()=>{clearArcs();unfocus();return '<span class="tag a">Attention</span><span class="tag r">残差</span>混ぜた結果を元の次元に戻し、入力を足し戻す。Attentionブロック完了。';}},
+  {lab:"7 FFN(個別変換)",  t:"f", n:()=>{clearArcs();TOK.forEach((_,i)=>{drawVec(i,afterFFN[i]);});ffnAll();setRoles();return '<span class="tag f">FFN</span>各トークンを"単独で"非線形変換(gate/up→SiLU⊙→down)。トークン間に線が無い=互いに無関係に並列処理。';}},
+  {lab:"8 +残差 → 次層へ",  t:"r", n:()=>{clearArcs();unffn();return '<span class="tag r">残差</span>FFN結果を足し戻して次の decoder 層へ。この「混ぜる→考える」を16回繰り返すと、最後のトークンが次の語を予測できる状態に育つ。';}},
+];
+
+function setRoles(map){ for(let i=0;i<N;i++){ const r=document.getElementById('role'+i); r.textContent=(map&&map[i]!==undefined)?map[i]:''; } }
+function focus(i){ document.getElementById('tok'+i).classList.add('focus'); }
+function unfocus(){ document.querySelectorAll('.tok').forEach(t=>t.classList.remove('focus')); }
+function ffnAll(){ document.querySelectorAll('.tok').forEach(t=>t.classList.add('ffn')); }
+function unffn(){ document.querySelectorAll('.tok').forEach(t=>t.classList.remove('ffn')); }
+
+let s=0, timer=null;
+function render(){
+  const st=stages[s];
+  document.getElementById('slab').textContent=st.lab;
+  document.getElementById('narr').innerHTML=st.n();
+}
+function step(d){ s=Math.max(0,Math.min(stages.length-1,s+d)); render();
+  if(s>=stages.length-1){clearInterval(timer);timer=null;document.getElementById('play').textContent='▶ 再生';} }
+function play(){ if(timer){clearInterval(timer);timer=null;document.getElementById('play').textContent='▶ 再生';return;}
+  if(s>=stages.length-1){s=0;render();} document.getElementById('play').textContent='⏸ 停止';
+  timer=setInterval(()=>{ if(s>=stages.length-1){step(0);} else step(1); },1500); }
+document.getElementById('next').onclick=()=>step(1);
+document.getElementById('prev').onclick=()=>step(-1);
+document.getElementById('play').onclick=play;
+document.getElementById('reset').onclick=()=>{clearInterval(timer);timer=null;document.getElementById('play').textContent='▶ 再生';s=0;render();};
+
+buildTokens(); render();
+</script>
+</body>
+</html>

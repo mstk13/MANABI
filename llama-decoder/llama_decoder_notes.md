@@ -1,7 +1,8 @@
 # Llama decoder 1層の GEMM 分解 — アクセラレータは何を計算するか
 
-図つき版(ブラウザ): **[llama_decoder_gemm.html](https://mstk13.github.io/MANABI/llama-decoder/llama_decoder_gemm.html)**
-(各ステップをクリック/ホバーすると形と役割が右に出る。色=計算の種類)
+図つき版(ブラウザ):
+- **[llama_decoder_gemm.html](https://mstk13.github.io/MANABI/llama-decoder/llama_decoder_gemm.html)** — 1層のGEMM分解(各ステップの形と役割をクリック/ホバー)
+- **[model_flow.html](https://mstk13.github.io/MANABI/llama-decoder/model_flow.html)** — モデルの動き(Attention=混ぜる / FFN=考える を再生で追う)
 
 ターゲット = **Llama 系 dense decoder transformer の推論**(bring-up は 1B 級)。
 1層を分解すると、重い計算は **7本の重みGEMM(行列積)+ Attentionコア2本**。
