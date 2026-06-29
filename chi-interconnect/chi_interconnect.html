@@ -68,6 +68,32 @@
   <p class="lead">CHI(Coherent Hub Interface)= 多数のキャッシュ持ちコアの<b>一貫性</b>を、メッシュNoC上で
     スケーラブルに回すプロトコル。下のアニメで <b>同じ「読み出し」を AXI と CHI で切り替え</b>て動かせる。</p>
 
+  <!-- ===== WHY ===== -->
+  <div class="card">
+    <h2>⓪ なぜCHIが要る? — AXIの「キャッシュ食い違い」を自動で直す</h2>
+    <p class="lead" style="margin:0 0 8px">メモリの住所 X=<b>5</b>。コアA・Bが各自キャッシュを持つ。</p>
+    <table>
+      <tr><th>時点</th><th>メモリ</th><th>Aキャッシュ</th><th>Bキャッシュ</th><th>状況</th></tr>
+      <tr><td>初期(両者が読む)</td><td>5</td><td>5</td><td>5</td><td>一致</td></tr>
+      <tr><td><b>Aが X=10 に書く</b></td><td>5</td><td><b style="color:#ff6b8b">10</b></td><td>5</td><td><b style="color:#ff6b8b">食い違い!</b></td></tr>
+      <tr><td>Bが X を読む</td><td>5</td><td>10</td><td><b style="color:#ff6b8b">5を読む</b></td><td><b style="color:#ff6b8b">古い値=バグ</b></td></tr>
+    </table>
+    <div class="grid3" style="margin-top:12px">
+      <div class="mini" style="grid-column:span 1"><h3 style="color:#ff6b8b">AXI だと直せない</h3>
+        住所→データを返すだけ。<b>他コアのキャッシュを知る仕組み(スヌープ)が無い</b>。
+        → <b>ソフトが手動で flush/invalidate</b> しないと正しく動かない(遅い・面倒・バグの温床)。</div>
+      <div class="mini" style="grid-column:span 2"><h3 style="color:#37d67a">CHI は自動で直す</h3>
+        <b>Home Node + ディレクトリ</b>が「Xを誰が持つか」を記録し、<b>SNPチャネル</b>で命令する:<br>
+        ・Aが書く時 → Home が「Bが持つ」と知り <b>SnpUnique でBを無効化</b> → 以後Aだけが最新<br>
+        ・Bが後で読む時 → Home が <b>Aから最新(10)を取り寄せてBへ</b> → Bは正しく10を読む ✓<br>
+        <span class="lead">プログラマは普通に読み書きするだけ。flush も invalidate も不要。</span></div>
+    </div>
+    <p class="lead" style="margin:10px 0 0"><b>メリット3つ</b>:
+      ① <b>正しさを自動保証</b>(普通のコードでOK) ② <b>速い</b>(キャッシュ間で直接データ授受=メモリを待たない)
+      ③ <b>スケール</b>(ディレクトリ+メッシュ+creditで多コアでも破綻しない)。
+      ※ キャッシュを持たない単純DMA/メモリ転送なら AXI で十分(軽い)。適材適所。</p>
+  </div>
+
   <!-- ===== ANIMATION ===== -->
   <div class="card">
     <h2>① 実際の動き(切り替えて再生)</h2>
@@ -141,6 +167,16 @@
   <!-- ===== NoC/デッドロック ===== -->
   <div class="card">
     <h2>④ NoC上での動き & デッドロック回避(自作NoCと同じ語彙)</h2>
+    <div class="mini" style="margin-bottom:10px"><h3>メッシュ(mesh)とは</h3>
+      ノードを<b>格子状</b>に並べ隣だけ繋ぐ配線。データは<b>隣へ隣へホップ</b>して進む(XYルーティング)。
+      <b>バス</b>(1本共有=渋滞)や<b>クロスバー</b>(全結合=線がN²で爆発)と違い、線はほぼ比例で増えるだけで
+      <b>別の場所で同時通信</b>できる→<b>多コアでもスケール</b>。<b>Arm CMN</b>=CHIをこのメッシュ上で走らせる構成。
+      自作の <code>2×2 mesh + XY</code> がその最小版。
+      <pre style="font-family:ui-monospace,monospace;font-size:12px;color:#9fb0c8;margin:6px 0 0">[N]─[N]─[N]
+ │   │   │     N=ノード(コア+ルータ)
+[N]─[N]─[N]    隣をたどってflitが進む
+ │   │   │
+[N]─[N]─[N]</pre></div>
     <table>
       <tr><th>仕組み</th><th>中身</th></tr>
       <tr><td><b>メッセージクラス分離(VC)</b></td><td>REQ/RSP/SNP/DAT を別チャネル(仮想チャネル)で運ぶ → 詰まった要求が応答を塞がない。<b>応答は常にsink可能</b>(プロトコルデッドロック回避)</td></tr>
