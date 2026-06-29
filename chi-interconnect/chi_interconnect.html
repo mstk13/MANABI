@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AMBA CHI — 構造・AXIとの比較・動き(アニメ)</title>
+<style>
+  :root{--bg:#0f1420;--card:#171d2b;--ink:#e6ebf5;--sub:#9fb0c8;--line:#222c41;--code:#0c111c;
+    --req:#7ea8ff;--snp:#ffaf45;--dat:#37d67a;--rsp:#c08bff;--node:#202a3d;--nb:#33415c}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,"Segoe UI",Roboto,"Hiragino Kaku Gothic ProN",Meiryo,sans-serif;
+    line-height:1.65;padding:24px}
+  .wrap{max-width:940px;margin:0 auto}
+  h1{font-size:21px;margin:0 0 4px}
+  h2{font-size:16px;margin:0 0 8px}
+  .lead{color:var(--sub);font-size:14px;margin:0 0 14px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;margin:14px 0}
+  table{width:100%;border-collapse:collapse;font-size:13px;margin:6px 0}
+  td,th{border:1px solid #2a3550;padding:6px 9px;text-align:left}
+  th{color:var(--sub);font-weight:600}
+  code{font-family:ui-monospace,Menlo,Consolas,monospace;background:var(--code);border:1px solid var(--line);
+    border-radius:5px;padding:1px 5px;font-size:12.5px}
+  a{color:var(--req)}
+
+  /* animation */
+  .modebar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+  .modebar button{flex:0 0 auto}
+  button{background:var(--node);color:var(--ink);border:1px solid var(--nb);border-radius:9px;
+    padding:8px 13px;font-size:14px;cursor:pointer}
+  button:hover{background:#27344c}
+  button.on{background:#2b62d6;border-color:#3b72e6}
+  button.primary{background:#2b62d6;border-color:#3b72e6}
+
+  .stagebox{position:relative;width:100%;aspect-ratio:700/300;margin:8px 0}
+  svg{position:absolute;inset:0;width:100%;height:100%}
+  .node{position:absolute;transform:translate(-50%,-50%);width:140px;background:var(--node);
+    border:1px solid var(--nb);border-radius:11px;padding:8px;text-align:center;transition:.2s}
+  .node.glow{border-color:#fff;box-shadow:0 0 0 2px rgba(255,255,255,.4)}
+  .node .nt{font-size:13px;font-weight:700;color:#dfe8ff}
+  .node .nd{font-size:10.5px;color:var(--sub);margin-top:1px}
+  .node .st{display:inline-block;margin-top:5px;font-size:11px;font-weight:700;border-radius:5px;padding:1px 7px}
+  .st.I{background:#3a4660;color:#cbd5ea} .st.SC{background:rgba(126,168,255,.25);color:#bcd3ff}
+  .st.UD{background:rgba(255,107,139,.25);color:#ffc1cd} .st.UC{background:rgba(255,175,69,.25);color:#ffe0b0}
+  .st.M{background:rgba(255,107,139,.25);color:#ffc1cd}
+
+  .packet{position:absolute;transform:translate(-50%,-50%);font-size:11.5px;font-weight:700;
+    padding:3px 9px;border-radius:8px;color:#0c111c;white-space:nowrap;transition:left 1.05s ease,top 1.05s ease;
+    box-shadow:0 2px 8px rgba(0,0,0,.5);z-index:5}
+  .packet.hide{opacity:0}
+  .pREQ{background:var(--req)} .pSNP{background:var(--snp)} .pDAT{background:var(--dat)} .pRSP{background:var(--rsp)}
+
+  .controls{display:flex;gap:9px;align-items:center;justify-content:center;margin:8px 0 6px;flex-wrap:wrap}
+  .stagelab{font-family:ui-monospace,monospace;font-size:13px;color:#cdd9ef;min-width:90px;text-align:center}
+  .narr{background:var(--code);border:1px solid var(--line);border-radius:8px;padding:11px 13px;
+    font-size:14px;color:#cfe0ff;min-height:42px}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12.5px;color:var(--sub);margin:6px 0}
+  .dot{display:inline-block;width:11px;height:11px;border-radius:3px;vertical-align:-1px;margin-right:4px}
+  .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+  @media(max-width:720px){.grid3{grid-template-columns:1fr}}
+  .mini{border:1px solid var(--line);border-radius:10px;padding:11px 13px;font-size:13px}
+  .mini h3{margin:0 0 5px;font-size:14px;color:#dfe8ff}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>AMBA CHI — 構造・AXIとの比較・実際の動き</h1>
+  <p class="lead">CHI(Coherent Hub Interface)= 多数のキャッシュ持ちコアの<b>一貫性</b>を、メッシュNoC上で
+    スケーラブルに回すプロトコル。下のアニメで <b>同じ「読み出し」を AXI と CHI で切り替え</b>て動かせる。</p>
+
+  <!-- ===== ANIMATION ===== -->
+  <div class="card">
+    <h2>① 実際の動き(切り替えて再生)</h2>
+    <div class="modebar">
+      <button id="mAXI" class="on">AXI 読み出し(非コヒーレント)</button>
+      <button id="mCHI">CHI ReadUnique(コヒーレント+スヌープ)</button>
+    </div>
+    <div class="legend">
+      <span><span class="dot" style="background:var(--req)"></span>REQ(要求)</span>
+      <span><span class="dot" style="background:var(--snp)"></span>SNP(スヌープ)</span>
+      <span><span class="dot" style="background:var(--dat)"></span>DAT(データ)</span>
+      <span><span class="dot" style="background:var(--rsp)"></span>RSP(応答)</span>
+    </div>
+
+    <div class="stagebox" id="stage">
+      <svg id="svg" viewBox="0 0 700 300" preserveAspectRatio="none"></svg>
+      <div class="packet hide" id="packet">REQ</div>
+      <!-- nodes injected -->
+    </div>
+
+    <div class="controls">
+      <button id="reset">↺ 最初へ</button>
+      <button id="prev">◀ 前へ</button>
+      <button id="play" class="primary">▶ 再生</button>
+      <button id="next">次へ ▶</button>
+      <span class="stagelab" id="slab"></span>
+    </div>
+    <div class="narr" id="narr"></div>
+  </div>
+
+  <!-- ===== AXI vs CHI ===== -->
+  <div class="card">
+    <h2>② AXI と CHI の比較</h2>
+    <table>
+      <tr><th></th><th>AXI(AMBA4/5)</th><th>CHI(AMBA5 CHI)</th></tr>
+      <tr><td>目的</td><td>単純なメモリ転送(master→slave)</td><td><b>多コアのキャッシュ一貫性</b></td></tr>
+      <tr><td>一貫性</td><td>なし(スヌープしない)</td><td><b>あり</b>(HWで整合・スヌープ)</td></tr>
+      <tr><td>伝送</td><td>信号(ワイヤ)ベース・5チャネル(AR/R/AW/W/B)</td><td><b>パケット(flit)・層構造</b>・4チャネル(REQ/RSP/SNP/DAT)</td></tr>
+      <tr><td>規模</td><td>少数マスタ</td><td><b>メッシュNoCに数十〜数百ノード</b>(Arm CMN)</td></tr>
+      <tr><td>識別/経路</td><td>アドレス+ID</td><td><b>TxnID + 送信元/宛先ノードID</b>でルーティング</td></tr>
+      <tr><td>系譜</td><td colspan="2">AXI(非コヒーレント)→ <b>ACE</b>(AXIにスヌープ信号追加=線が多くスケールせず)→ <b>CHI</b>(パケット化・層構造でメッシュにスケール)</td></tr>
+    </table>
+    <p class="lead" style="margin:6px 0 0">上のアニメで見える差:AXIは <b>2ホップ(AR→R)で完了・他コアを気にしない</b>。
+      CHIは <b>必ず Home Node を経由し、他コアにスヌープを飛ばしてから</b>データを渡す。</p>
+  </div>
+
+  <!-- ===== 構造 ===== -->
+  <div class="card">
+    <h2>③ CHI の構造</h2>
+    <div class="grid3">
+      <div class="mini"><h3>3つの層</h3>
+        <b>Protocol</b>:一貫性のルール(状態・スヌープ・完了)<br>
+        <b>Network</b>:flitを<b>ノードID</b>でメッシュ経路選択<br>
+        <b>Link</b>:隣接間の<b>creditフロー制御</b><br>
+        <span class="lead">→ プロトコルと配線が分離=大きなメッシュに載る</span></div>
+      <div class="mini"><h3>ノードの役者</h3>
+        <b>RN</b>(要求):RN-F=キャッシュ持ちコア / RN-I=I/Oブリッジ<br>
+        <b>HN</b>(Home=管理人):<b>PoC/PoS</b>。ディレクトリ/スヌープフィルタ持ち。★一貫性の心臓<br>
+        <b>SN</b>(Slave):メモリ/周辺</div>
+      <div class="mini"><h3>4チャネル</h3>
+        <b style="color:var(--req)">REQ</b> RN→HN 要求<br>
+        <b style="color:var(--snp)">SNP</b> HN→RN-F スヌープ<br>
+        <b style="color:var(--dat)">DAT</b> データ(読/書/吐き出し)<br>
+        <b style="color:var(--rsp)">RSP</b> データ無し応答(Comp/CompAck)</div>
+    </div>
+    <p class="lead" style="margin:10px 0 0"><b>キャッシュ状態(MOESIベース)</b>:I / UC / UD / SC / SD。
+      U=自分だけ・S=共有・C=メモリと一致(clean)・D=自分が最新(dirty=書き戻し責任)。
+      アニメでは <span class="st SC">SC</span>(共有・未変更)→ <span class="st I">I</span>(無効) / <span class="st UD">UD</span>(独占・変更可)が動く。</p>
+  </div>
+
+  <!-- ===== NoC/デッドロック ===== -->
+  <div class="card">
+    <h2>④ NoC上での動き & デッドロック回避(自作NoCと同じ語彙)</h2>
+    <table>
+      <tr><th>仕組み</th><th>中身</th></tr>
+      <tr><td><b>メッセージクラス分離(VC)</b></td><td>REQ/RSP/SNP/DAT を別チャネル(仮想チャネル)で運ぶ → 詰まった要求が応答を塞がない。<b>応答は常にsink可能</b>(プロトコルデッドロック回避)</td></tr>
+      <tr><td><b>Retry機構</b></td><td>HNの資源満杯なら <code>RetryAck</code> で一旦拒否 → <b>P-Credit</b>受領後に再送。受けきれない要求でブロックし続けない</td></tr>
+      <tr><td><b>Link層 credit(L-credit)</b></td><td>受信バッファの空き分だけ送る → バッファ溢れブロックを構造的に防ぐ(=valid-ready/credit)</td></tr>
+      <tr><td><b>XYルーティング</b></td><td>メッシュを次元順ルーティング+VCで循環依存を断つ(ルーティングデッドロック回避)</td></tr>
+    </table>
+    <p class="lead" style="margin:6px 0 0">→ 自作する <b>アービタ→ルータ→2×2 mesh(XY)</b> は CHI の <b>Network層</b>に相当。
+      VC・credit・XY は CHI でもそのまま要る共通言語。</p>
+  </div>
+
+  <p class="lead">関連: <a href="../hw-rtl/hw_rtl_notes.md">HW/RTL(NoC・検証・PPA)</a> ·
+    <a href="chi_interconnect_notes.md">ノート</a></p>
+</div>
+
+<script>
+// ---------- node layouts (viewBox 700x300) ----------
+const LAYOUT = {
+  AXI:{
+    nodes:{
+      M:{x:120,y:150,t:"Master",d:"CPU等(キャッシュ)"},
+      IC:{x:350,y:150,t:"Interconnect",d:"(経路のみ)"},
+      MEM:{x:580,y:150,t:"Slave / Memory",d:"SN相当"}
+    },
+    edges:[["M","IC"],["IC","MEM"]]
+  },
+  CHI:{
+    nodes:{
+      B:{x:110,y:60,t:"RN-F (B)",d:"共有保持コア",state:"SC"},
+      A:{x:110,y:240,t:"RN-F (A)",d:"要求コア",state:"I"},
+      HN:{x:350,y:150,t:"HN-F (Home)",d:"一貫性の管理人"},
+      SN:{x:580,y:150,t:"SN-F",d:"Memory"}
+    },
+    edges:[["A","HN"],["B","HN"],["HN","SN"]]
+  }
+};
+// ---------- step scripts ----------
+const STEPS = {
+  AXI:[
+    {f:"M",t:"MEM",ch:"REQ",lab:"AR(addr)",narr:"<b>① AR</b>:Masterが読みアドレスを送る。経路はInterconnect経由だが、<b>他コアの確認は一切なし</b>。"},
+    {f:"MEM",t:"M",ch:"DAT",lab:"R(data)",narr:"<b>② R</b>:メモリがデータを返して完了。<b>2ホップ</b>で終わり。もし他コアが新しい値を持っていてもAXIは気づけない=非コヒーレント。"}
+  ],
+  CHI:[
+    {glow:null,narr:"<b>初期状態</b>:コアB が該当ラインを <span class='st SC'>SC</span>(共有・未変更)で保持。コアA は <span class='st I'>I</span>(持っていない)。A が「<b>書くために独占取得</b>」したい。",state:{B:"SC",A:"I"}},
+    {f:"A",t:"HN",ch:"REQ",lab:"ReadUnique",narr:"<b>① REQ:ReadUnique</b>(A→HN):Aが独占読みを要求。<b>必ずHome Nodeを経由</b>するのがCHIの肝。"},
+    {glow:"HN",narr:"<b>② ディレクトリ確認</b>(HN内部):HN-Fがスヌープフィルタを見て「<b>Bが共有保持</b>」と判明。だからBにだけスヌープを送る(全コアにばら撒かない)。"},
+    {f:"HN",t:"B",ch:"SNP",lab:"SnpUnique",narr:"<b>③ SNP:SnpUnique</b>(HN→B):Bに「そのラインを<b>無効化して</b>」とスヌープ。"},
+    {f:"B",t:"HN",ch:"DAT",lab:"SnpResp+Data",narr:"<b>④ 応答</b>(B→HN):Bは <span class='st SC'>SC</span>→<span class='st I'>I</span> に無効化し、(dirtyなら)DATでデータも返す。",state:{B:"I",A:"I"}},
+    {f:"HN",t:"A",ch:"DAT",lab:"CompData",narr:"<b>⑤ DAT:CompData</b>(HN→A):HNがデータ+完了をAへ。AはこのラインをUDで得る。",state:{B:"I",A:"UD"}},
+    {f:"A",t:"HN",ch:"RSP",lab:"CompAck",narr:"<b>⑥ RSP:CompAck</b>(A→HN):Aが完了確認。トランザクション終了。結果 → A=<span class='st UD'>UD</span>(独占・変更可)、B=<span class='st I'>I</span>。<b>一貫性が保たれた</b>。"}
+  ]
+};
+
+let mode="AXI", s=0, timer=null;
+const stage=document.getElementById('stage'), svg=document.getElementById('svg'), packet=document.getElementById('packet');
+const px=x=>x/700*100, py=y=>y/300*100;
+
+function build(){
+  // clear nodes (keep svg + packet)
+  [...stage.querySelectorAll('.node')].forEach(n=>n.remove());
+  svg.innerHTML='';
+  const L=LAYOUT[mode];
+  L.edges.forEach(([a,b])=>{
+    const na=L.nodes[a], nb=L.nodes[b];
+    const ln=document.createElementNS('http://www.w3.org/2000/svg','line');
+    ln.setAttribute('x1',na.x);ln.setAttribute('y1',na.y);ln.setAttribute('x2',nb.x);ln.setAttribute('y2',nb.y);
+    ln.setAttribute('stroke','#2c3855');ln.setAttribute('stroke-width','2');
+    svg.appendChild(ln);
+  });
+  for(const k in L.nodes){
+    const n=L.nodes[k];
+    const d=document.createElement('div'); d.className='node'; d.id='node_'+k;
+    d.style.left=px(n.x)+'%'; d.style.top=py(n.y)+'%';
+    d.innerHTML=`<div class="nt">${n.t}</div><div class="nd">${n.d}</div>`+
+      (n.state!==undefined?`<span class="st ${n.state}" id="state_${k}">${n.state}</span>`:'');
+    stage.appendChild(d);
+  }
+}
+function setState(map){
+  if(!map) return;
+  for(const k in map){ const el=document.getElementById('state_'+k); if(el){el.textContent=map[k];el.className='st '+map[k];} }
+}
+function recomputeStates(upto){
+  // reset to layout defaults then apply step states 0..upto
+  const L=LAYOUT[mode];
+  for(const k in L.nodes){ if(L.nodes[k].state!==undefined) setState({[k]:L.nodes[k].state}); }
+  for(let i=0;i<=upto;i++){ if(STEPS[mode][i].state) setState(STEPS[mode][i].state); }
+}
+function glow(node){
+  [...stage.querySelectorAll('.node')].forEach(n=>n.classList.remove('glow'));
+  if(node){ const el=document.getElementById('node_'+node); if(el)el.classList.add('glow'); }
+}
+function placePacket(node,instant){
+  const n=LAYOUT[mode].nodes[node];
+  if(instant){ packet.style.transition='none'; }
+  packet.style.left=px(n.x)+'%'; packet.style.top=py(n.y)+'%';
+  if(instant){ packet.offsetHeight; packet.style.transition=''; }
+}
+function render(){
+  const st=STEPS[mode][s];
+  document.getElementById('slab').textContent=`${s+ (mode==='CHI'?0:1)} / ${STEPS[mode].length-(mode==='CHI'?1:0)}`;
+  document.getElementById('narr').innerHTML=st.narr;
+  recomputeStates(s);
+  glow(st.glow!==undefined?st.glow:null);
+  if(st.f){ // packet moves f -> t
+    placePacket(st.f,true);
+    packet.className='packet p'+st.ch; packet.textContent=st.lab;
+    requestAnimationFrame(()=>requestAnimationFrame(()=>placePacket(st.t,false)));
+  }else{
+    packet.className='packet p'+(st.ch||'REQ')+' hide';
+  }
+}
+function step(d){ s=Math.max(0,Math.min(STEPS[mode].length-1,s+d)); render();
+  if(s>=STEPS[mode].length-1){clearInterval(timer);timer=null;document.getElementById('play').textContent='▶ 再生';} }
+function play(){ if(timer){clearInterval(timer);timer=null;document.getElementById('play').textContent='▶ 再生';return;}
+  if(s>=STEPS[mode].length-1){s=0;} document.getElementById('play').textContent='⏸ 停止';
+  render(); timer=setInterval(()=>{ if(s>=STEPS[mode].length-1){step(0);} else step(1); },1700); }
+function setMode(m){ mode=m; s=0; clearInterval(timer);timer=null; document.getElementById('play').textContent='▶ 再生';
+  document.getElementById('mAXI').classList.toggle('on',m==='AXI');
+  document.getElementById('mCHI').classList.toggle('on',m==='CHI');
+  build(); render(); }
+document.getElementById('mAXI').onclick=()=>setMode('AXI');
+document.getElementById('mCHI').onclick=()=>setMode('CHI');
+document.getElementById('next').onclick=()=>step(1);
+document.getElementById('prev').onclick=()=>step(-1);
+document.getElementById('play').onclick=play;
+document.getElementById('reset').onclick=()=>{clearInterval(timer);timer=null;document.getElementById('play').textContent='▶ 再生';s=0;render();};
+
+setMode('AXI');
+</script>
+</body>
+</html>
