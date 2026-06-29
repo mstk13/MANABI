@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>物理設計フロー — 論理合成のあと(gcd実測)</title>
+<style>
+  :root{--bg:#0f1117;--card:#1a1d27;--ink:#e8eaf0;--sub:#9aa3b2;--line:#2a2f3e;
+        --ok:#3ddc84;--bad:#ff6b6b;--accent:#6ea8ff;--warn:#ffd166;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font-family:system-ui,"Segoe UI","Hiragino Kaku Gothic ProN",Meiryo,sans-serif;
+       line-height:1.6;padding:24px}
+  .wrap{max-width:960px;margin:0 auto}
+  h1{font-size:1.5rem;margin:0 0 4px}
+  .lead{color:var(--sub);margin:0 0 24px}
+  h2{font-size:1.15rem;border-left:4px solid var(--accent);padding-left:10px;margin:32px 0 12px}
+  .flow{display:flex;flex-wrap:wrap;gap:8px;align-items:stretch}
+  .step{flex:1;min-width:120px;background:var(--card);border:1px solid var(--line);
+        border-radius:10px;padding:12px;position:relative}
+  .step .n{font-size:.72rem;color:var(--accent);font-weight:700;letter-spacing:.05em}
+  .step .t{font-weight:700;margin:2px 0}
+  .step .d{font-size:.8rem;color:var(--sub)}
+  .arrow{align-self:center;color:var(--sub);font-size:1.2rem}
+  table{border-collapse:collapse;width:100%;margin-top:8px;font-size:.9rem}
+  th,td{border:1px solid var(--line);padding:7px 10px;text-align:center}
+  th{background:#222633;color:var(--sub);font-weight:600}
+  td.l{text-align:left}
+  .bad{color:var(--bad);font-weight:700}.ok{color:var(--ok);font-weight:700}
+  .chart{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:16px;margin-top:8px}
+  .bars{display:flex;align-items:flex-end;gap:14px;height:200px;padding:0 6px}
+  .bar{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%}
+  .bar .col{width:70%;background:linear-gradient(var(--bad),#b13b3b);border-radius:4px 4px 0 0;
+            display:flex;align-items:flex-start;justify-content:center;color:#fff;font-size:.72rem;padding-top:3px}
+  .bar .lab{font-size:.72rem;color:var(--sub);margin-top:6px;text-align:center}
+  .note{background:#181c28;border:1px dashed var(--line);border-radius:10px;padding:14px;margin-top:12px;font-size:.9rem}
+  .k{color:var(--warn);font-weight:700}
+  .legend{font-size:.8rem;color:var(--sub);margin-top:6px}
+  code{background:#222633;padding:1px 5px;border-radius:4px;font-size:.85em}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>物理設計フロー — 論理合成のあと</h1>
+  <p class="lead">合成は「部品表」を出すだけ。PDはそれを<b>シリコン座標</b>に落とし、<b>遅延を1つずつ確定</b>させる。
+  数字はすべて ORFS で <b>gcd / sky130hd</b> を実際に流した実測値。</p>
+
+  <h2>フロー(ORFS の段)</h2>
+  <div class="flow">
+    <div class="step"><div class="n">1_synth</div><div class="t">論理合成</div><div class="d">セル＋接続(全部理想)</div></div>
+    <div class="arrow">→</div>
+    <div class="step"><div class="n">2_floorplan</div><div class="t">フロアプラン</div><div class="d">外形・I/O・電源網・タップ</div></div>
+    <div class="arrow">→</div>
+    <div class="step"><div class="n">3_place</div><div class="t">配置</div><div class="d">全セルに座標→配線長</div></div>
+    <div class="arrow">→</div>
+    <div class="step"><div class="n">4_cts</div><div class="t">クロック木</div><div class="d">実クロックツリー挿入</div></div>
+    <div class="arrow">→</div>
+    <div class="step"><div class="n">5_route</div><div class="t">配線</div><div class="d">実配線RCが乗る</div></div>
+    <div class="arrow">→</div>
+    <div class="step"><div class="n">6_final</div><div class="t">仕上げ・署名</div><div class="d">寄生抽出・最終STA・GDS</div></div>
+  </div>
+
+  <h2>核心:段が進むほど slack は悪化する</h2>
+  <p class="lead" style="margin-bottom:8px">各段は「理想」を1つずつ「現実」に置き換える。だから遅延が増え、各段の後で STA を回し直す。</p>
+  <div class="chart">
+    <div class="bars">
+      <!-- WNS は負。棒の高さ ∝ |WNS|。 -->
+      <div class="bar"><div class="col" style="height:84%">-2.04</div><div class="lab">floorplan</div></div>
+      <div class="bar"><div class="col" style="height:90%">-2.18</div><div class="lab">place</div></div>
+      <div class="bar"><div class="col" style="height:91%">-2.21</div><div class="lab">CTS</div></div>
+      <div class="bar"><div class="col" style="height:100%">-2.42</div><div class="lab">route<br>(最悪)</div></div>
+      <div class="bar"><div class="col" style="height:93%">-2.26</div><div class="lab">finish</div></div>
+    </div>
+    <div class="legend">縦軸 = worst slack |WNS| (ns)。要求 period = 1.10ns に対する不足。長いほど悪い。配線後が最悪 → 最終最適化で少し回復。</div>
+  </div>
+
+  <h2>実測値(reports/sky130hd/gcd/base)</h2>
+  <table>
+    <tr><th>段</th><th>WNS (ns)</th><th>fmax (MHz)</th><th>TNS (ns)</th><th class="l">新しく「現実」になるもの</th></tr>
+    <tr><td>2 floorplan</td><td class="bad">-2.04</td><td>318.5</td><td>-78.6</td><td class="l">外形/I/O/電源網。クロックは理想</td></tr>
+    <tr><td>3 place</td><td class="bad">-2.18</td><td>304.5</td><td>-93.3</td><td class="l">セル座標 → 配線長</td></tr>
+    <tr><td>4 CTS</td><td class="bad">-2.21</td><td>301.8</td><td>-94.3</td><td class="l">実クロックツリー(skew 0.01ns)</td></tr>
+    <tr><td>5 route</td><td class="bad">-2.42</td><td>283.9</td><td>-102.2</td><td class="l">実配線RC(最悪点)</td></tr>
+    <tr><td>6 finish</td><td class="bad">-2.26</td><td>297.6</td><td>-95.5</td><td class="l">最終最適化・DRC 0・GDS</td></tr>
+  </table>
+
+  <div class="note">
+    <p>⚠️ <span class="k">このgcdはタイミング未達(教材例)</span>:要求 <code>1.10ns(≒909MHz)</code> に対し回路の限界は
+    <code>fmax≒298MHz(3.36ns)</code>。GDSは出るが署名STAは赤(setup違反60本)。<b>制約が攻めすぎ</b>。
+    直すなら→ クロック緩和 / パイプライン段追加 / 配置・合成の最適化強化。</p>
+    <p>🔋 <span class="k">電力も段で変わる</span>:floorplan <b>3.08mW</b>(クロック網=0)→ 最終 <b>6.66mW</b>(うちクロック14.2%)。
+    クロックツリーを実際に建てて初めてその電力が見える。</p>
+    <p>📐 PD の評価軸 = <span class="k">PPA</span>(Performance / Power / Area)のトレードオフ。
+    速くするとバッファ増→面積・電力増、詰めると混雑→遅延、の綱引き。</p>
+  </div>
+
+  <p class="legend" style="margin-top:24px">MANABI / physical-design — ORFS gcd/sky130hd 実測。ノート本体: <code>pd_notes.md</code></p>
+</div>
+</body>
+</html>

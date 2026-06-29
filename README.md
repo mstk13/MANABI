@@ -20,6 +20,8 @@
 | **HW/RTL設計の要点**: NoC・検証(UVM)・PPA(多コア+NoC型アクセラレータ向け) | [hw-rtl/hw_rtl_notes.md](hw-rtl/hw_rtl_notes.md) | [図解](https://mstk13.github.io/MANABI/hw-rtl/hw_rtl.html) |
 | **コアレッシング/MSHR/ライトバック**: アクセスを束ねてメモリ回数を減らす3技術 → IOMMU(PTW)応用と落とし穴 | [coalescing-mshr/coalescing_mshr_notes.md](coalescing-mshr/coalescing_mshr_notes.md) | [図解](https://mstk13.github.io/MANABI/coalescing-mshr/coalescing_mshr_writeback.html) |
 | **ECC設計の落とし穴**: メモリのビット化けを直すECCを実際に作るときの注意点（制御CPU用/AIアクセラレータ用のレビュー指摘を平易に） | [ecc-design/ecc_design_notes.md](ecc-design/ecc_design_notes.md) | [図解](https://mstk13.github.io/MANABI/ecc-design/ecc_design.html) |
+| **物理設計(論理合成のあと)**: フロアプラン→配置→CTS→配線→署名/GDS。各段で slack がどう動くかを ORFS gcd 実測で追う | [physical-design/pd_notes.md](physical-design/pd_notes.md) | [図解](https://mstk13.github.io/MANABI/physical-design/pd.html) |
+| **シストリックアレイ(weight-stationary)**: AIアクセラの心臓。活性→・部分和↓を流しながら積和を貯める仕組みを3×3でアニメ。段数↔STA↔配置に接続 | [systolic-array/systolic_array_notes.md](systolic-array/systolic_array_notes.md) | [図解(再生可)](https://mstk13.github.io/MANABI/systolic-array/systolic_array.html) |
 
 ## 追加のしかた
 1. `トピック名/note.md` を作って書く(図が要れば同じフォルダに `.html`)。

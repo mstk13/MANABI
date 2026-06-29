@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>シストリックアレイ(weight-stationary, 3×3)の動作</title>
+<style>
+  :root{
+    --bg:#0f1420; --card:#171d2b; --ink:#e6ebf5; --sub:#9fb0c8;
+    --pe:#202a3d; --peb:#33415c; --w:#7ea8ff; --act:#37d67a; --ps:#ffaf45; --out:#ff6b8b;
+    --grid:#2a3550;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,"Segoe UI",Roboto,"Hiragino Kaku Gothic ProN",Meiryo,sans-serif;
+    line-height:1.65;padding:24px}
+  .wrap{max-width:900px;margin:0 auto}
+  h1{font-size:21px;margin:0 0 4px}
+  .lead{color:var(--sub);font-size:14px;margin:0 0 18px}
+  .card{background:var(--card);border:1px solid #222c41;border-radius:14px;padding:20px;margin:16px 0}
+  .legend{display:flex;gap:18px;flex-wrap:wrap;font-size:13px;color:var(--sub);margin-bottom:8px}
+  .dot{display:inline-block;width:11px;height:11px;border-radius:3px;vertical-align:-1px;margin-right:5px}
+  .formula{font-family:ui-monospace,Menlo,Consolas,monospace;background:#0c111c;border:1px solid #222c41;
+    border-radius:8px;padding:10px 12px;color:#cdd9ef;font-size:13.5px;overflow-x:auto}
+
+  /* array layout */
+  .stage{display:grid;grid-template-columns:auto repeat(3, 96px);
+    grid-template-rows:auto repeat(3, 96px) auto;gap:10px;justify-content:center;margin:14px 0 4px}
+  .lab{display:flex;align-items:center;justify-content:center;font-size:12.5px;color:var(--sub);text-align:center}
+  .lab.row{justify-content:flex-end;padding-right:4px}
+  .pe{position:relative;background:var(--pe);border:1px solid var(--peb);border-radius:12px;
+    display:flex;align-items:center;justify-content:center;transition:.18s}
+  .pe.activeNow{border-color:var(--ps);box-shadow:0 0 0 2px rgba(255,175,69,.35)}
+  .pe .wlab{font-size:11px;color:var(--w);position:absolute;top:6px;left:8px}
+  .pe .wval{font-size:24px;font-weight:700;color:#dfe8ff}
+  .badge{position:absolute;font-size:11.5px;font-weight:700;padding:2px 6px;border-radius:7px;white-space:nowrap}
+  .actB{background:rgba(55,214,122,.18);color:var(--act);border:1px solid rgba(55,214,122,.5);
+    left:-6px;top:50%;transform:translateY(-50%)}
+  .psB{background:rgba(255,175,69,.18);color:var(--ps);border:1px solid rgba(255,175,69,.5);
+    top:-7px;left:50%;transform:translateX(-50%)}
+  .out{display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;
+    color:var(--sub);border:1px dashed #3a4a66;border-radius:10px}
+  .out.done{color:var(--out);border:1px solid var(--out);background:rgba(255,107,139,.12)}
+  .arrowR{color:var(--act);font-size:12px}
+  .arrowD{color:var(--ps);font-size:12px}
+
+  .controls{display:flex;gap:10px;align-items:center;justify-content:center;margin:14px 0 6px;flex-wrap:wrap}
+  button{background:var(--pe);color:var(--ink);border:1px solid var(--peb);border-radius:9px;
+    padding:8px 14px;font-size:14px;cursor:pointer}
+  button:hover{background:#27344c}
+  button.primary{background:#2b62d6;border-color:#3b72e6}
+  .cyc{font-family:ui-monospace,monospace;font-size:15px;color:#cdd9ef;min-width:64px;text-align:center}
+  .narr{background:#0c111c;border:1px solid #222c41;border-radius:8px;padding:11px 13px;
+    font-size:14px;color:#cfe0ff;min-height:20px}
+  .check{font-size:13px;color:var(--sub);margin-top:10px}
+  .check b{color:#dfe8ff}
+  table{width:100%;border-collapse:collapse;font-size:13px;margin-top:6px}
+  td,th{border:1px solid var(--grid);padding:5px 8px;text-align:center}
+  th{color:var(--sub);font-weight:600}
+  .key{color:var(--w)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>シストリックアレイ(weight-stationary, 3×3)が積和を貯める様子</h1>
+  <p class="lead">「systolic=心臓の拍動」。データが1拍ごとに隣のPEへ送られ、<b>流れる途中で積和が貯まる</b>。
+     重みは各PEに固定(stationary)。活性は右へ→、部分和は下へ↓。</p>
+
+  <div class="card">
+    <div class="formula" id="formula"></div>
+    <div class="legend" style="margin-top:12px">
+      <span><span class="dot" style="background:var(--w)"></span>重み W[r][c](固定)</span>
+      <span><span class="dot" style="background:var(--act)"></span>活性 a[r](→右へ進む)</span>
+      <span><span class="dot" style="background:var(--ps)"></span>部分和 psum(↓下へ貯まる)</span>
+      <span><span class="dot" style="background:var(--out)"></span>出力 o[c]</span>
+    </div>
+
+    <div class="stage" id="stage"></div>
+
+    <div class="controls">
+      <button id="reset">↺ リセット</button>
+      <button id="prev">◀ 前へ</button>
+      <button id="play" class="primary">▶ 再生</button>
+      <button id="next">次へ ▶</button>
+      <span class="cyc" id="cyc">t = 0</span>
+    </div>
+    <div class="narr" id="narr"></div>
+    <div class="check" id="check"></div>
+  </div>
+
+  <div class="card">
+    <h1 style="font-size:16px">この図で押さえること</h1>
+    <table>
+      <tr><th>見るもの</th><th>意味</th><th>設計での効き(段数/STA)</th></tr>
+      <tr><td>対角線が光る(r+c=t)</td><td>計算は<b>波(wavefront)</b>として斜めに広がる</td><td>入力を階段状にずらす理由</td></tr>
+      <tr><td>1つのPEの中身</td><td><b>乗算1回+加算1回</b>(w·a を psum に足す)</td><td class="key">これがクリティカルパス=fmaxを決める</td></tr>
+      <tr><td>o0→o1→o2 が1拍ずつ遅れて出る</td><td>右の列ほど活性の到着が1拍遅い</td><td>fill/drain レイテンシ</td></tr>
+      <tr><td>定常状態</td><td>1クロックに1結果が出続ける</td><td>スループットの源(並列度 N²)</td></tr>
+    </table>
+    <p class="check" style="margin-top:12px">段数を増やす=PE内の乗算と加算をレジスタで分割 → クリティカルパス短縮で
+      <b>fmax↑</b>。代償に<b>レイテンシ↑・面積/電力↑</b>。これが
+      <a href="../cpu-pipeline/pipeline_depth.html" style="color:var(--w)">パイプライン段数</a>の力がデータパスで再現する点。</p>
+  </div>
+</div>
+
+<script>
+// ===== concrete example =====
+const W = [[1,2,3],[4,5,6],[7,8,9]];   // W[r][c]
+const a = [2,3,4];                      // activation vector
+// partial[r][c] = sum_{k=0..r} a[k]*W[k][c] ; output o[c]=partial[2][c]
+const partial = [[],[],[]];
+for(let c=0;c<3;c++){let s=0;for(let r=0;r<3;r++){s+=a[r]*W[r][c];partial[r][c]=s;}}
+const out = [partial[2][0],partial[2][1],partial[2][2]]; // [42,51,60]
+const TMAX = 6; // cycles 0..6
+let t = 0, timer = null;
+
+document.getElementById('formula').textContent =
+  `o[c] = Σ_r a[r]·W[r][c]      a = [${a}]   W = [[${W[0]}],[${W[1]}],[${W[2]}]]   →   o = [${out}]`;
+
+// build static grid
+const stage = document.getElementById('stage');
+function buildGrid(){
+  stage.innerHTML='';
+  // top-left corner
+  stage.appendChild(cell('lab','psum in = 0'));
+  for(let c=0;c<3;c++) stage.appendChild(cell('lab','列'+c+' ↓'));
+  for(let r=0;r<3;r++){
+    stage.appendChild(cell('lab row', 'a'+r+'='+a[r]+' →'));
+    for(let c=0;c<3;c++){
+      const pe=document.createElement('div'); pe.className='pe'; pe.id='pe'+r+'_'+c;
+      pe.innerHTML=`<span class="wlab">W[${r}][${c}]</span><span class="wval">${W[r][c]}</span>`;
+      stage.appendChild(pe);
+    }
+  }
+  stage.appendChild(cell('lab',''));
+  for(let c=0;c<3;c++){const o=document.createElement('div');o.className='out';o.id='out'+c;
+    o.textContent='o'+c+' = ?';stage.appendChild(o);}
+}
+function cell(cls,txt){const d=document.createElement('div');d.className=cls;d.textContent=txt;return d;}
+
+// render a given cycle
+function render(){
+  document.getElementById('cyc').textContent='t = '+t;
+  // clear dynamic
+  for(let r=0;r<3;r++)for(let c=0;c<3;c++){
+    const pe=document.getElementById('pe'+r+'_'+c);
+    pe.classList.remove('activeNow');
+    pe.querySelectorAll('.badge').forEach(b=>b.remove());
+  }
+  // activations: a[r] is at column (t-r)
+  for(let r=0;r<3;r++){const c=t-r; if(c>=0&&c<3){
+    const pe=document.getElementById('pe'+r+'_'+c);
+    pe.insertAdjacentHTML('beforeend',`<span class="badge actB">a${r}=${a[r]} →</span>`);
+  }}
+  // psums: column c carries psum at row (t-c)
+  for(let c=0;c<3;c++){const r=t-c; if(r>=0&&r<3){
+    const pe=document.getElementById('pe'+r+'_'+c);
+    pe.classList.add('activeNow');
+    pe.insertAdjacentHTML('beforeend',`<span class="badge psB">psum=${partial[r][c]}</span>`);
+  }}
+  // outputs done when bottom row produced: o[c] ready once t-c >= 2
+  let doneList=[];
+  for(let c=0;c<3;c++){const o=document.getElementById('out'+c);
+    if(t-c>=2){o.textContent='o'+c+' = '+out[c];o.classList.add('done');doneList.push('o'+c+'='+out[c]);}
+    else{o.textContent='o'+c+' = ?';o.classList.remove('done');}
+  }
+  // narration
+  const diag=[];
+  for(let r=0;r<3;r++){const c=t-r; if(c>=0&&c<3)diag.push(`PE(${r},${c})`);}
+  let n=`サイクル t=${t}: `;
+  if(diag.length) n+=`対角線 ${diag.join(', ')} が計算中(psum に w·a を加算)。`;
+  else n+='アレイは空(充填前/排出後)。';
+  if(doneList.length) n+=` 完成: ${doneList.join(' , ')}。`;
+  document.getElementById('narr').textContent=n;
+  // check line
+  document.getElementById('check').innerHTML =
+    `検算: 例 o0 = a0·W00 + a1·W10 + a2·W20 = ${a[0]}·${W[0][0]} + ${a[1]}·${W[1][0]} + ${a[2]}·${W[2][0]} = <b>${out[0]}</b>。`;
+}
+
+function step(d){t=Math.max(0,Math.min(TMAX,t+d));render();
+  if(t>=TMAX){clearInterval(timer);timer=null;document.getElementById('play').textContent='▶ 再生';}}
+function play(){if(timer){clearInterval(timer);timer=null;document.getElementById('play').textContent='▶ 再生';return;}
+  if(t>=TMAX)t=0; document.getElementById('play').textContent='⏸ 停止';
+  timer=setInterval(()=>{if(t>=TMAX){step(0);}else step(1);},900);}
+document.getElementById('next').onclick=()=>step(1);
+document.getElementById('prev').onclick=()=>step(-1);
+document.getElementById('reset').onclick=()=>{clearInterval(timer);timer=null;
+  document.getElementById('play').textContent='▶ 再生';t=0;render();};
+document.getElementById('play').onclick=play;
+
+buildGrid();render();
+</script>
+</body>
+</html>
