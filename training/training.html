@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ニューラルネットの学習 — 山下り(勾配降下)</title>
+<style>
+  :root{--bg:#0f1420;--card:#171d2b;--ink:#e6ebf5;--sub:#9fb0c8;--line:#222c41;--code:#0c111c;
+    --fwd:#37d67a;--loss:#ff6b8b;--bwd:#ffaf45;--upd:#7ea8ff}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,"Segoe UI",Roboto,"Hiragino Kaku Gothic ProN",Meiryo,sans-serif;
+    line-height:1.6;padding:22px}
+  .wrap{max-width:900px;margin:0 auto}
+  h1{font-size:21px;margin:0 0 4px}
+  .lead{color:var(--sub);font-size:14px;margin:0 0 12px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;margin:13px 0}
+  .loop{display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:center}
+  .blk{border:2px solid;border-radius:11px;padding:9px 12px;min-width:120px;text-align:center;cursor:pointer;background:#141b28;transition:.14s;font-size:12.5px}
+  .blk:hover{filter:brightness(1.18)}.blk.on{box-shadow:0 0 0 3px rgba(255,255,255,.28)}
+  .blk .t{font-weight:700}.blk .s{font-size:10px;color:var(--sub);margin-top:1px}
+  .arr{color:#46536f;font-size:15px}
+  .panel{background:var(--code);border:1px solid var(--line);border-radius:11px;padding:13px;margin-top:12px;font-size:13px}
+  .panel h3{margin:0 0 5px;font-size:15px}.panel p{color:#cdd9ef;margin:5px 0}
+  .gd{display:grid;grid-template-columns:1fr 200px;gap:14px;align-items:center}
+  @media(max-width:680px){.gd{grid-template-columns:1fr}}
+  svg{width:100%;background:#0a0e17;border:1px solid var(--line);border-radius:10px}
+  .stat{font-family:ui-monospace,monospace;font-size:13px;color:#cdd9ef}
+  .stat b{color:#fff}
+  button{background:#202a3d;color:var(--ink);border:1px solid #33415c;border-radius:9px;padding:8px 12px;font-size:14px;cursor:pointer;margin:3px 0}
+  button.primary{background:#2b62d6;border-color:#3b72e6}
+  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:6px 0}
+  input[type=range]{width:120px}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:6px}
+  td,th{border:1px solid #2a3550;padding:5px 8px;text-align:left}th{color:var(--sub)}
+  code{font-family:ui-monospace,monospace;background:var(--code);border:1px solid var(--line);border-radius:5px;padding:1px 5px;font-size:12px}
+  a{color:var(--upd)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>ニューラルネットの学習 — 山下り(勾配降下)</h1>
+  <p class="lead">学習=誤差(損失)を減らすよう重みを調整する最適化。下の<b>4ステップループ</b>をクリックで理解し、
+    右下の<b>山下り</b>を実際に動かして「学習=谷に降りる」を体感。</p>
+
+  <div class="card">
+    <div class="loop" id="loop">
+      <div class="blk" data-id="fwd" style="border-color:var(--fwd)"><div class="t">① 順伝播</div><div class="s">入力→予測</div></div>
+      <div class="arr">▶</div>
+      <div class="blk" data-id="loss" style="border-color:var(--loss)"><div class="t">② 損失</div><div class="s">予測 vs 正解</div></div>
+      <div class="arr">▶</div>
+      <div class="blk" data-id="bwd" style="border-color:var(--bwd)"><div class="t">③ 逆伝播</div><div class="s">勾配を計算</div></div>
+      <div class="arr">▶</div>
+      <div class="blk" data-id="upd" style="border-color:var(--upd)"><div class="t">④ 更新</div><div class="s">重みを調整</div></div>
+      <div class="arr">↺</div>
+      <div class="blk" data-id="rep" style="border-color:var(--sub)"><div class="t">繰り返し</div><div class="s">損失↓</div></div>
+    </div>
+    <div class="panel" id="panel"><h3>ステップをクリック</h3><p>各ステップの中身が出ます。</p></div>
+  </div>
+
+  <div class="card">
+    <h1 style="font-size:16px">山下りを動かす(損失 vs 重み)</h1>
+    <div class="gd">
+      <svg id="svg" viewBox="0 0 400 220" preserveAspectRatio="none"></svg>
+      <div>
+        <div class="stat">重み w = <b id="w">2.50</b></div>
+        <div class="stat">損失 = <b id="l">?</b></div>
+        <div class="stat">勾配 = <b id="g">?</b></div>
+        <div class="row"><span style="font-size:12px;color:var(--sub)">学習率(歩幅)</span></div>
+        <div class="row"><input type="range" id="lr" min="1" max="90" value="20"> <span class="stat" id="lrv">0.20</span></div>
+        <button class="primary" id="step">学習ステップ ×1</button>
+        <button id="auto">自動 ▶</button>
+        <button id="reset">↺ ランダムに戻す</button>
+      </div>
+    </div>
+    <p class="lead" style="margin:8px 0 0">勾配=坂の傾き。<b>その逆向きに歩幅ぶん動く</b>と谷(損失最小)へ。歩幅を大きくしすぎると<b>飛び越えて発散</b>するのも試せる。</p>
+  </div>
+
+  <div class="card">
+    <h1 style="font-size:16px">なぜ学習は推論よりずっと重いか</h1>
+    <table>
+      <tr><th>負荷</th><th>理由</th></tr>
+      <tr><td>計算 2〜3倍</td><td>順伝播に加え<b>逆伝播でもう1周</b>(勾配計算)。逆伝播も <code>Wᵀ·勾配</code>=行列積</td></tr>
+      <tr><td>メモリ巨大</td><td>逆伝播に使うため<b>全層の活性値を保存</b></td></tr>
+      <tr><td>さらにメモリ</td><td>Adam等の<b>オプティマイザ状態</b>=重みの2〜3倍</td></tr>
+    </table>
+    <p class="lead" style="margin:6px 0 0">→ 学習=数千GPUクラスタ / 推論=1台でも。だからアクセラは<b>推論向け</b>が現実的。
+      LLMの学習の中身は「<b>次トークン予測の誤差を勾配降下で下げる</b>」を巨大スケールで回すだけ。</p>
+  </div>
+  <p class="lead">関連: <a href="../modern-ai/modern_ai.html">近年のAIの処理</a> ·
+    <a href="../llama-decoder/model_flow.html">Transformerの動き</a> · <a href="../ai-accelerator/ai_accel_notes.html">AIアクセラレータ</a></p>
+</div>
+
+<script>
+const D={
+ fwd:{t:"① 順伝播(forward)",c:"#37d67a",b:"入力を通して<b>予測</b>を出す(行列積+非線形の層を通す)。推論と同じ計算。"},
+ loss:{t:"② 損失(loss)",c:"#ff6b8b",b:"予測が正解からどれだけずれたかを<b>1つの数</b>にする。LLMなら「次のトークンにどれだけ高い確率を付けられたか」(cross-entropy)。小さいほど良い。"},
+ bwd:{t:"③ 逆伝播(backprop)",c:"#ffaf45",b:"各重みが<b>損失をどっち向きにどれだけ動かすか=勾配</b>を計算。<b>連鎖律</b>で出力側から入力側へ層を逆向きに掛けて伝える(<code>Wᵀ·勾配</code>=転置行列積)。"},
+ upd:{t:"④ 更新(update)",c:"#7ea8ff",b:"各重みを<b>勾配の逆向きに歩幅ぶん</b>動かす:<code>w ← w − 学習率×勾配</code>。これで損失が少し下がる。"},
+ rep:{t:"繰り返し",c:"#9fb0c8",b:"①〜④を何百万回。損失が下がり続ける=モデルが賢くなる。データを何周も(エポック)。"}
+};
+const panel=document.getElementById('panel');
+function show(id){document.querySelectorAll('.blk').forEach(b=>b.classList.toggle('on',b.dataset.id===id));
+  const d=D[id];panel.innerHTML=`<h3 style="color:${d.c}">${d.t}</h3><p>${d.b}</p>`;}
+document.querySelectorAll('.blk').forEach(b=>{b.onclick=()=>show(b.dataset.id);b.onmouseenter=()=>show(b.dataset.id);});
+show('bwd');
+
+// ---- gradient descent ----
+const svg=document.getElementById('svg'), NS="http://www.w3.org/2000/svg";
+const TARGET=-0.7;                       // 損失最小の重み
+const loss=w=>(w-TARGET)*(w-TARGET);     // 損失関数(放物線)
+const grad=w=>2*(w-TARGET);              // 勾配
+const WMIN=-3.2,WMAX=3.2,LMAX=loss(WMAX);
+const X=w=>(w-WMIN)/(WMAX-WMIN)*400;
+const Y=l=>210-(l/LMAX)*200;
+let w=2.5, timer=null;
+function drawCurve(){
+  let d="";
+  for(let i=0;i<=100;i++){const ww=WMIN+(WMAX-WMIN)*i/100;const x=X(ww),y=Y(loss(ww));d+=(i?"L":"M")+x.toFixed(1)+" "+y.toFixed(1)+" ";}
+  return d;
+}
+function render(){
+  svg.innerHTML="";
+  const p=document.createElementNS(NS,"path");p.setAttribute("d",drawCurve());
+  p.setAttribute("fill","none");p.setAttribute("stroke","#334");p.setAttribute("stroke-width","2");svg.appendChild(p);
+  // target line
+  const tl=document.createElementNS(NS,"line");tl.setAttribute("x1",X(TARGET));tl.setAttribute("x2",X(TARGET));
+  tl.setAttribute("y1",10);tl.setAttribute("y2",210);tl.setAttribute("stroke","#2c5a42");tl.setAttribute("stroke-dasharray","3 3");svg.appendChild(tl);
+  // ball
+  const c=document.createElementNS(NS,"circle");c.setAttribute("cx",X(w));c.setAttribute("cy",Y(loss(w)));
+  c.setAttribute("r",7);c.setAttribute("fill","#ff6b8b");svg.appendChild(c);
+  document.getElementById('w').textContent=w.toFixed(2);
+  document.getElementById('l').textContent=loss(w).toFixed(3);
+  document.getElementById('g').textContent=grad(w).toFixed(3);
+}
+function lr(){return document.getElementById('lr').value/100;}
+function step(){ w = w - lr()*grad(w); if(w<WMIN)w=WMIN; if(w>WMAX)w=WMAX; render(); }
+document.getElementById('lr').oninput=()=>{document.getElementById('lrv').textContent=lr().toFixed(2);};
+document.getElementById('step').onclick=step;
+document.getElementById('reset').onclick=()=>{w=(Math.abs(loss(2.5))>0?2.5:2.5); w= 2.5; render();};
+document.getElementById('auto').onclick=function(){
+  if(timer){clearInterval(timer);timer=null;this.textContent="自動 ▶";return;}
+  this.textContent="停止";timer=setInterval(step,250);
+};
+render();
+</script>
+</body>
+</html>
