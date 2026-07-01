@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Llama 1層は Tensix コアのどこで動くか</title>
+<style>
+  :root{--bg:#0f1420;--card:#171d2b;--ink:#e6ebf5;--sub:#9fb0c8;--line:#222c41;--code:#0c111c;
+    --fpu:#7ea8ff;--sfpu:#c08bff;--reduce:#37d67a;--dm:#ffaf45;--misc:#5b6680}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,"Segoe UI",Roboto,"Hiragino Kaku Gothic ProN",Meiryo,sans-serif;
+    line-height:1.55;padding:22px}
+  .wrap{max-width:1000px;margin:0 auto}
+  h1{font-size:21px;margin:0 0 4px}
+  .lead{color:var(--sub);font-size:13.5px;margin:0 0 12px}
+  .legend{display:flex;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--sub);margin-bottom:10px}
+  .chip{display:inline-block;font-size:10.5px;font-weight:700;border-radius:5px;padding:1px 7px;color:#0c111c}
+  .fpu{background:var(--fpu)}.sfpu{background:var(--sfpu)}.reduce{background:var(--reduce)}.dm{background:var(--dm)}.misc{background:var(--misc);color:#e6ebf5}
+  .layout{display:grid;grid-template-columns:1fr 300px;gap:16px}
+  @media(max-width:820px){.layout{grid-template-columns:1fr}}
+  .flow{display:flex;flex-direction:column;gap:5px}
+  .blkt{font-size:11px;color:var(--sub);margin:8px 0 2px;border-bottom:1px solid var(--line);padding-bottom:2px}
+  .op{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:9px;padding:7px 10px;cursor:pointer;background:#141b28;transition:.13s}
+  .op:hover{background:#1c2434}.op.on{box-shadow:0 0 0 2px #fff inset}
+  .op .lab{flex:1;font-size:12.5px}
+  .op .n{font-size:10px;color:var(--sub)}
+  .core{position:sticky;top:14px}
+  .unit{border:2px solid #2c3855;border-radius:9px;padding:7px 9px;margin:5px 0;background:#141b28;transition:.15s;font-size:12px;opacity:.4}
+  .unit.hot{opacity:1}
+  .unit .ut{font-weight:700}.unit .us{font-size:10.5px;color:var(--sub)}
+  .u-dm.hot{border-color:var(--dm)}.u-unp.hot,.u-pack.hot,.u-dst.hot{border-color:#8894ad}
+  .u-fpu.hot{border-color:var(--fpu)}.u-sfpu.hot{border-color:var(--sfpu)}.u-red.hot{border-color:var(--reduce)}
+  .t1{border:1px dashed #46536f;border-radius:10px;padding:4px 8px;margin:5px 0}
+  .t1 .lbl{font-size:10px;color:var(--sub)}
+  .arw{text-align:center;color:#46536f;font-size:12px;line-height:1}
+  .panel{background:var(--code);border:1px solid var(--line);border-radius:11px;padding:12px;margin-top:10px;font-size:12.5px}
+  .panel h3{margin:0 0 5px;font-size:14px}
+  .panel .m{color:#cdd9ef}
+  code{font-family:ui-monospace,monospace;background:#0a0e17;border:1px solid var(--line);border-radius:4px;padding:1px 5px;font-size:11.5px}
+  a{color:var(--fpu)}
+  .note{background:rgba(255,175,69,.1);border:1px solid #ffaf45;border-radius:9px;padding:10px 13px;font-size:12.5px;color:#ffe0b0;margin-top:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Llama 1層は Tensix コアの「どこ」で動くか</h1>
+  <p class="lead">左=Llama decoder 1層の処理フロー。各処理をクリックすると、右の <b>Tensix コア断面</b>で
+    それを実行する<b>ユニットが光り</b>、LLK の対応も出ます。色=どのハードが担うか。</p>
+  <div class="legend">
+    <span><span class="chip fpu">FPU</span> 行列積(GEMM)=T1</span>
+    <span><span class="chip sfpu">SFPU</span> ベクタ活性/正規化=T1(32レーン)</span>
+    <span><span class="chip reduce">REDUCE</span> 総和/二乗和</span>
+    <span><span class="chip dm">DM+NoC</span> データ移動(重み/KV)</span>
+  </div>
+
+  <div class="layout">
+    <!-- Llama flow -->
+    <div class="flow" id="flow">
+      <div class="blkt">Self-Attention ブロック</div>
+      <div class="op" data-id="rms1"><span class="chip sfpu">SFPU</span><span class="chip reduce">RED</span><span class="lab">RMSNorm(前)</span></div>
+      <div class="arw">▼</div>
+      <div class="op" data-id="qkv"><span class="chip fpu">FPU</span><span class="lab">① Q ② K ③ V 射影(重みGEMM)</span></div>
+      <div class="arw">▼</div>
+      <div class="op" data-id="rope"><span class="chip sfpu">SFPU</span><span class="lab">RoPE(位置回転)</span></div>
+      <div class="arw">▼</div>
+      <div class="op" data-id="qk"><span class="chip fpu">FPU</span><span class="lab">④ スコア QKᵀ(活性×活性)</span></div>
+      <div class="arw">▼</div>
+      <div class="op" data-id="softmax"><span class="chip sfpu">SFPU</span><span class="chip reduce">RED</span><span class="lab">softmax</span></div>
+      <div class="arw">▼</div>
+      <div class="op" data-id="av"><span class="chip fpu">FPU</span><span class="lab">⑤ ·V(活性×活性)</span></div>
+      <div class="arw">▼</div>
+      <div class="op" data-id="oproj"><span class="chip fpu">FPU</span><span class="lab">⑥ O 射影(重みGEMM)</span></div>
+      <div class="arw">▼</div>
+      <div class="op" data-id="res1"><span class="chip fpu">FPU</span><span class="lab">+ 残差(eltwise add)</span></div>
+
+      <div class="blkt">FFN ブロック(SwiGLU)</div>
+      <div class="op" data-id="rms2"><span class="chip sfpu">SFPU</span><span class="chip reduce">RED</span><span class="lab">RMSNorm(後)</span></div>
+      <div class="arw">▼</div>
+      <div class="op" data-id="gateup"><span class="chip fpu">FPU</span><span class="lab">⑦ gate ⑧ up 射影(重みGEMM・最大)</span></div>
+      <div class="arw">▼</div>
+      <div class="op" data-id="silu"><span class="chip sfpu">SFPU</span><span class="chip fpu">FPU</span><span class="lab">SiLU(gate) ⊙ up</span></div>
+      <div class="arw">▼</div>
+      <div class="op" data-id="down"><span class="chip fpu">FPU</span><span class="lab">⑨ down 射影(重みGEMM)</span></div>
+      <div class="arw">▼</div>
+      <div class="op" data-id="res2"><span class="chip fpu">FPU</span><span class="lab">+ 残差 → 次の層へ</span></div>
+
+      <div class="panel" id="panel"><h3>処理をクリック</h3><p class="m">Tensix のどのユニットが担うか + LLK が出ます。</p></div>
+      <div class="note">💡 <b>多コアで分担</b>: 1つの重みGEMM(例 [S,2048]×[2048,8192])は 32×32 <b>タイル</b>に分割され、
+        <b>グリッド上の多数の Tensix コア</b>に配られて並列計算(部分和は NoC で集約)。1コアは断面図の1回分を回す。</div>
+    </div>
+
+    <!-- Tensix core cross-section -->
+    <div class="core">
+      <div style="font-size:12px;color:var(--sub);margin-bottom:4px">▼ Tensix コア断面(光る=使用中)</div>
+      <div class="unit u-dm"><div class="ut">DM(B/NC)+ NoC</div><div class="us">L1⇄DRAM 重み/活性/KV移動</div></div>
+      <div class="arw">▼</div>
+      <div class="unit u-unp"><div class="ut">T0 UNPACK</div><div class="us">L1→Src(展開)</div></div>
+      <div class="arw">▼</div>
+      <div class="t1"><div class="lbl">T1 Math(FPU + SFPU + Reduce)</div>
+        <div class="unit u-fpu"><div class="ut">FPU: MVMUL</div><div class="us">行列積 D=B*A</div></div>
+        <div class="unit u-sfpu"><div class="ut">SFPU(32レーン)</div><div class="us">gelu/silu/exp/rsqrt/回転</div></div>
+        <div class="unit u-red"><div class="ut">REDUCE</div><div class="us">行/列の総和・二乗和・max</div></div>
+      </div>
+      <div class="unit u-dst"><div class="ut">Dst(累算器)</div><div class="us">結果タイル置き場</div></div>
+      <div class="arw">▼</div>
+      <div class="unit u-pack"><div class="ut">T2 PACK</div><div class="us">整形(FP変換)→L1</div></div>
+    </div>
+  </div>
+
+  <p class="lead" style="margin-top:14px">関連: <a href="../llama-decoder/llama_decoder_gemm.html">Llama 1層のGEMM分解</a> ·
+    <a href="../tensix-compute/tensix_compute.html">Tensix 計算エンジン(LLK)</a> ·
+    <a href="../tt-stack/tt_stack.html">TTスタック</a></p>
+</div>
+
+<script>
+// op -> {units:[...], text, llk}
+const U=["dm","unp","fpu","sfpu","red","dst","pack"];
+const D={
+ rms1:{u:["dm","unp","red","sfpu","dst","pack"],t:"RMSNorm(正規化)。<b>REDUCE</b>で各トークンの二乗和→<b>SFPU</b>で rsqrt を掛けて正規化。行列積ではない=ベクタ/reduce仕事。",llk:"llk_math_reduce.h + SFPU(rsqrt)"},
+ qkv:{u:["dm","unp","fpu","dst","pack"],t:"Q/K/V 射影=<b>重みGEMM</b>。Unpackで x と重みを Src へ→<b>FPU の MVMUL</b>で積和→Dst。重みは<b>DM+NoC</b>が DRAM から供給。",llk:"llk_math_matmul.h + llk_unpack_AB_matmul.h"},
+ rope:{u:["sfpu","dst"],t:"RoPE=位置情報を Q,K に<b>回転</b>として加える。sin/cos の要素演算=<b>SFPU</b>。",llk:"SFPU(sincos/rotate)"},
+ qk:{u:["dm","unp","fpu","dst","pack"],t:"スコア QKᵀ=<b>Attnコア GEMM</b>(重みでなく<b>活性×活性</b>)。同じく <b>FPU の MVMUL</b>。形が列長Sに依存し長文ほど重い。",llk:"llk_math_matmul.h"},
+ softmax:{u:["red","sfpu","dst"],t:"softmax。<b>REDUCE</b>で行のmax/総和→<b>SFPU</b>で exp と割り算。非GEMM=ベクタ+reduce。",llk:"llk_math_reduce.h + SFPU(exp)"},
+ av:{u:["dm","unp","fpu","dst","pack"],t:"·V=注意重み×V=<b>Attnコア GEMM</b>。<b>FPU の MVMUL</b>。",llk:"llk_math_matmul.h"},
+ oproj:{u:["dm","unp","fpu","dst","pack"],t:"O 射影=<b>重みGEMM</b>。各ヘッド出力を結合し hidden へ戻す。<b>FPU</b>。",llk:"llk_math_matmul.h"},
+ res1:{u:["fpu","dst"],t:"残差加算=<b>eltwise add</b>。<b>FPU</b> のタイル加算(add_tiles)。",llk:"llk_math_eltwise_binary.h"},
+ rms2:{u:["red","sfpu","dst"],t:"FFN前 RMSNorm。REDUCE(二乗和)+ SFPU(rsqrt)。",llk:"llk_math_reduce.h + SFPU"},
+ gateup:{u:["dm","unp","fpu","dst","pack"],t:"gate/up 射影=<b>最大の重みGEMM</b>(中間8192へ拡大)。<b>FPU の MVMUL</b>。1層FLOPsの過半。",llk:"llk_math_matmul.h"},
+ silu:{u:["sfpu","fpu","dst"],t:"SiLU(gate) ⊙ up。<b>SFPU</b>で SiLU 活性→<b>FPU</b>(eltwise mul)で up と要素積。",llk:"SFPU(silu) + llk_math_eltwise_binary.h(mul)"},
+ down:{u:["dm","unp","fpu","dst","pack"],t:"down 射影=<b>重みGEMM</b>(8192→2048)。<b>FPU</b>。",llk:"llk_math_matmul.h"},
+ res2:{u:["fpu","dst"],t:"残差加算→次の decoder 層へ。<b>FPU</b> eltwise add。",llk:"llk_math_eltwise_binary.h"}
+};
+const idmap={dm:"u-dm",unp:"u-unp",fpu:"u-fpu",sfpu:"u-sfpu",red:"u-red",dst:"u-dst",pack:"u-pack"};
+function light(units){
+  Object.values(idmap).forEach(c=>document.querySelector("."+c).classList.remove("hot"));
+  units.forEach(u=>document.querySelector("."+idmap[u]).classList.add("hot"));
+}
+function show(id){
+  document.querySelectorAll('.op').forEach(o=>o.classList.toggle('on',o.dataset.id===id));
+  const d=D[id];light(d.u);
+  document.getElementById('panel').innerHTML=
+    `<h3>${document.querySelector('.op[data-id="'+id+'"] .lab').textContent}</h3>`+
+    `<p class="m">${d.t}</p><p class="m">LLK: <code>${d.llk}</code></p>`;
+}
+document.querySelectorAll('.op').forEach(o=>{o.onclick=()=>show(o.dataset.id);o.onmouseenter=()=>show(o.dataset.id);});
+show('qkv');
+</script>
+</body>
+</html>
