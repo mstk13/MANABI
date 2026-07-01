@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tensix 計算エンジン(LLK)— Unpack→FPU/SFPU→Pack と自作アレイの対応</title>
+<style>
+  :root{--bg:#0f1420;--card:#171d2b;--ink:#e6ebf5;--sub:#9fb0c8;--line:#222c41;--code:#0c111c;
+    --unp:#37d67a;--src:#5b6680;--fpu:#7ea8ff;--dst:#ffaf45;--sfpu:#c08bff;--pack:#ff6b8b}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,"Segoe UI",Roboto,"Hiragino Kaku Gothic ProN",Meiryo,sans-serif;
+    line-height:1.6;padding:24px}
+  .wrap{max-width:980px;margin:0 auto}
+  h1{font-size:21px;margin:0 0 4px}
+  .lead{color:var(--sub);font-size:14px;margin:0 0 14px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;margin:14px 0}
+  .pipe{display:flex;align-items:stretch;gap:6px;flex-wrap:wrap;justify-content:center}
+  .blk{border:2px solid;border-radius:11px;padding:10px 12px;min-width:100px;cursor:pointer;transition:.15s;background:#141b28;text-align:center}
+  .blk:hover{filter:brightness(1.15)}.blk.on{box-shadow:0 0 0 3px rgba(255,255,255,.28)}
+  .blk .tt{font-weight:700;font-size:13px}.blk .ss{font-size:10.5px;color:var(--sub);margin-top:2px}
+  .blk .th{font-size:10px;color:#0c111c;font-weight:700;border-radius:4px;padding:0 5px;display:inline-block;margin-bottom:3px}
+  .arw{align-self:center;color:#46536f;font-size:16px}
+  .panel{background:var(--code);border:1px solid var(--line);border-radius:12px;padding:14px;margin-top:12px}
+  .panel h3{margin:0 0 6px;font-size:15px}.panel p{font-size:13px;color:#cdd9ef;margin:6px 0}
+  pre{background:#0a0e17;border:1px solid var(--line);border-radius:7px;padding:9px;font-size:11.5px;color:#cdd9ef;overflow-x:auto;margin:6px 0}
+  .controls{display:flex;gap:9px;align-items:center;margin:12px 0 6px;flex-wrap:wrap}
+  button{background:#202a3d;color:var(--ink);border:1px solid #33415c;border-radius:9px;padding:8px 13px;font-size:14px;cursor:pointer}
+  button:hover{background:#27344c}button.primary{background:#2b62d6;border-color:#3b72e6}
+  .narr{background:var(--code);border:1px solid var(--line);border-radius:8px;padding:11px 13px;font-size:14px;color:#cfe0ff;min-height:40px}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:6px}
+  td,th{border:1px solid #2a3550;padding:5px 8px;text-align:left}th{color:var(--sub)}
+  code{font-family:ui-monospace,monospace;background:var(--code);border:1px solid var(--line);border-radius:5px;padding:1px 5px;font-size:12px}
+  a{color:var(--fpu)}.k{color:#ffd479}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Tensix 計算エンジン(LLK)— Unpack → FPU / SFPU → Pack</h1>
+  <p class="lead">1つの Tensix コアが1タイルを計算する流れ。<b>T0=Unpack / T1=Math(FPU+SFPU) / T2=Pack</b> の3スレッド。
+    ブロックをクリックで LLK コードの解説、<b>▶再生</b>で「行列積→活性(SwiGLUのFFN)」の流れを追う。</p>
+
+  <div class="card">
+    <div class="pipe" id="pipe">
+      <div class="blk" data-id="cbin" style="border-color:var(--src)"><span class="th" style="background:var(--src)">L1</span><div class="tt">CB 入力</div><div class="ss">循環バッファ(タイル)</div></div>
+      <div class="arw">▶</div>
+      <div class="blk" data-id="unp" style="border-color:var(--unp)"><span class="th" style="background:var(--unp)">T0</span><div class="tt">UNPACK</div><div class="ss">TTI_UNPACR</div></div>
+      <div class="arw">▶</div>
+      <div class="blk" data-id="src" style="border-color:var(--src)"><span class="th" style="background:var(--src)">reg</span><div class="tt">SrcA / SrcB</div><div class="ss">オペランド</div></div>
+      <div class="arw">▶</div>
+      <div class="blk" data-id="fpu" style="border-color:var(--fpu)"><span class="th" style="background:var(--fpu)">T1</span><div class="tt">FPU: MVMUL</div><div class="ss">D=B*A(行列積)</div></div>
+      <div class="arw">▶</div>
+      <div class="blk" data-id="dst" style="border-color:var(--dst)"><span class="th" style="background:var(--dst)">reg</span><div class="tt">Dst</div><div class="ss">累算器</div></div>
+      <div class="arw">↺</div>
+      <div class="blk" data-id="sfpu" style="border-color:var(--sfpu)"><span class="th" style="background:var(--sfpu)">T1</span><div class="tt">SFPU 活性</div><div class="ss">gelu/silu(32レーン)</div></div>
+      <div class="arw">▶</div>
+      <div class="blk" data-id="pack" style="border-color:var(--pack)"><span class="th" style="background:var(--pack)">T2</span><div class="tt">PACK</div><div class="ss">整形→L1</div></div>
+      <div class="arw">▶</div>
+      <div class="blk" data-id="cbout" style="border-color:var(--src)"><span class="th" style="background:var(--src)">L1</span><div class="tt">CB 出力</div><div class="ss">結果タイル</div></div>
+    </div>
+
+    <div class="controls">
+      <button id="reset">↺</button><button id="prev">◀</button>
+      <button id="play" class="primary">▶ FFN(matmul→活性)を流す</button><button id="next">▶</button>
+      <span id="slab" style="font-family:ui-monospace,monospace;font-size:13px;color:#cdd9ef"></span>
+    </div>
+    <div class="narr" id="narr">▶ を押すと SwiGLU FFN の1ステップ <code>silu(x@Wg)</code> が Unpack→FPU→SFPU→Pack と流れます。ブロックをクリックすると各段の LLK コードが出ます。</div>
+    <div class="panel" id="panel"><h3>ブロックをクリック</h3><p class="lead">各段が何をするか + 実 LLK コードが出ます。</p></div>
+  </div>
+
+  <div class="card">
+    <h1 style="font-size:16px">C. 自作アレイ ↔ Tensix 計算エンジンの対応</h1>
+    <table>
+      <tr><th>あなたが学んだ/作った概念</th><th>Tensix HW / LLK</th><th>ファイル</th></tr>
+      <tr><td>シストリックアレイの積和</td><td class="k">MVMUL(<code>D=B*A</code>, D[8,16]=B[8,16]×A[16,16])</td><td>llk_math_matmul.h</td></tr>
+      <tr><td>累算器(acc)</td><td>Dst レジスタ</td><td>—</td></tr>
+      <tr><td>weight-stationary(再利用)</td><td class="k">reuse_a/b + Unpack の据え置き/前進</td><td>llk_unpack_AB_matmul.h</td></tr>
+      <tr><td>valid-ready / credit</td><td>Unpack が <code>Dvalid</code> を立て Math が待つ</td><td>llk_unpack_AB_matmul.h</td></tr>
+      <tr><td>INT8/量子化(低精度で速く)</td><td class="k">math_fidelity(LoFi↔HiFi 多パス)</td><td>llk_math_matmul.h</td></tr>
+      <tr><td>PPA(電力トレードオフ)</td><td class="k">throttle(NOP挿入で速度↓電力↓)</td><td>llk_math_matmul.h</td></tr>
+      <tr><td>Llama の非GEMM活性(gelu/silu/softmax)</td><td class="k">SFPU(32レーンSIMD ベクタ)</td><td>llk_math_eltwise_unary_sfpu.h</td></tr>
+      <tr><td>スクラッチパッド/ダブルバッファ</td><td>L1 循環バッファ(CB)</td><td>—</td></tr>
+      <tr><td>タイル化GEMM</td><td>face(16×16)×4 を MVMUL で組む</td><td>llk_math_matmul.h</td></tr>
+    </table>
+  </div>
+  <p class="lead">関連: <a href="../tt-stack/tt_stack.html">TTスタック全体</a> ·
+    <a href="../systolic-array/systolic_array.html">自作シストリックアレイ</a> ·
+    <a href="../llama-decoder/llama_decoder_gemm.html">Llama GEMM分解</a></p>
+</div>
+
+<script>
+const D={
+ cbin:{t:"L1 循環バッファ(CB)入力",c:"#5b6680",b:"オンチップ L1 SRAM(~1.5MB)上のタイル置き場。DM(NoC)コアが DRAM から運んできた入力タイルがここに並ぶ。<b>ダブルバッファ</b>で転送と計算を重ねる。",code:"cb_wait_front(cb_in, 1);  // タイル到着を待つ"},
+ unp:{t:"T0 UNPACK",c:"#37d67a",b:"L1 のタイルを<b>SrcA/SrcB レジスタ</b>へ展開(フォーマット変換込み)。matmul では <b>in0→SrcB, in1→SrcA</b>。展開後 <b>Dvalid を立てて</b> Math(T1)に「データ準備OK」を通知(=valid-ready同期)。<br>reuse 側は L1 アドレスを<b>据え置き</b>、stream 側だけ<b>1タイルずつ前進</b>=weight-stationary の unpack 面。",code:"// llk_unpack_AB_matmul.h\nTTI_UNPACR(SrcA, ..., 1/*Set Dvalid*/, ...);\n// in0/inA -> SrcB,  in1/inB -> SrcA"},
+ src:{t:"SrcA / SrcB レジスタ",c:"#5b6680",b:"演算の2オペランドを保持するレジスタファイル。タイルは <b>face(16×16)×4</b> の単位で入る。MVMUL はここから読む。",code:"SRCA -- full 16x16 gets used\n// hardware pairs cols of A with rows of B"},
+ fpu:{t:"T1 FPU(行列エンジン): MVMUL",c:"#7ea8ff",b:"心臓命令 <b>MVMUL:</b> <code>D = B * A</code>(1回で D[8,16]=B[8,16]×A[16,16])。フル32×32タイルは <b>16個の MVMUL</b> で face を組み合わせ累算。<br>・<b>addr_mod</b>=SrcA/SrcB/Dst のポインタ自動前進(添字ループ不要)<br>・<b>math_fidelity</b>=精度パス数(LoFi速い↔HiFi正確)<br>・<b>throttle</b>=NOP挿入で電力上限に合わせ減速",code:"// llk_math_matmul.h\nTTI_MVMUL(CLR_NONE, 0, ADDR_MOD_0, 0); // D=B*A\n// x16 for full 32x32 tile (faces)"},
+ dst:{t:"Dst レジスタ(累算器)",c:"#ffaf45",b:"MVMUL の結果を貯める宛先レジスタ(16タイル分)。<b>あなたの MAC の累算器そのもの</b>。行列積の後、この Dst の中身に SFPU が活性を掛ける。",code:"tile_regs_acquire();  // Dst 予約\n... MVMUL で Dst に累算 ...\ntile_regs_commit();"},
+ sfpu:{t:"T1 SFPU(ベクタ特殊関数)",c:"#c08bff",b:"<b>32レーンSIMD</b>のベクタ演算器(FPUとは別、同じ T1 内)。FPUと違い<b>2オペランドを展開せず</b>、<b>Dst にある結果</b>にレーンごとに <b>gelu/silu/exp/sqrt/reciprocal</b> を適用して Dst に書き戻す。<br>= Llama の<b>非GEMM活性</b>(SwiGLUの SiLU 等)のHW実装。",code:"// llk_math_eltwise_unary_sfpu.h\ntemplate <SfpuType sfpu_op>  // silu, gelu, exp...\n// Dst のタイルにレーンごとに適用"},
+ pack:{t:"T2 PACK",c:"#ff6b8b",b:"Dst の結果を<b>フォーマット変換</b>(FP32→FP16 等)・<b>tilize</b> して L1 の出力CBへ書く。<br>※ B の実験で <code>F32→F16+dest_acc</code> が落ちたのは、この Packer の変換モードを ttsim が未実装だったから。",code:"pack_tile(dst_reg, cb_out0);  // Dst -> 整形 -> L1"},
+ cbout:{t:"L1 CB 出力",c:"#5b6680",b:"完成した結果タイル。次のop/次のコア(NoC経由)へ。",code:"cb_push_back(cb_out0, 1);  // 出力タイル完成"}
+};
+const panel=document.getElementById('panel');
+function show(id){document.querySelectorAll('.blk').forEach(b=>b.classList.toggle('on',b.dataset.id===id));
+  const d=D[id];panel.innerHTML=`<h3 style="color:${d.c}">${d.t}</h3><p>${d.b}</p><pre>${d.code}</pre>`;}
+document.querySelectorAll('.blk').forEach(b=>{b.onclick=()=>show(b.dataset.id);b.onmouseenter=()=>show(b.dataset.id);});
+
+const steps=[
+ {id:"cbin",n:"① 入力タイル x と重み Wg が L1 の循環バッファに到着(DMコアが運ぶ)。"},
+ {id:"unp",n:"② <b>T0 UNPACK</b>: x→SrcB, Wg→SrcA に展開。<code>Dvalid</code> を立て Math に通知。"},
+ {id:"fpu",n:"③ <b>T1 FPU</b>: 16× <code>MVMUL</code> で <code>gate = Wg·x</code> を Dst に累算(=行列積)。"},
+ {id:"dst",n:"④ Dst に gate の結果が貯まる(累算器)。"},
+ {id:"sfpu",n:"⑤ <b>T1 SFPU</b>: Dst の gate にレーンごとに <code>SiLU</code> を適用(=SwiGLUの活性)。"},
+ {id:"pack",n:"⑥ <b>T2 PACK</b>: Dst を整形(FP変換)して L1 出力CBへ。"},
+ {id:"cbout",n:"⑦ 結果タイル完成 → 次段へ。matmul(FPU)→活性(SFPU) が1コアで流れた。"}
+];
+let s=0,timer=null;
+function render(){document.getElementById('slab').textContent=`step ${s+1}/${steps.length}`;
+  document.getElementById('narr').innerHTML=steps[s].n;show(steps[s].id);}
+function step(d){s=Math.max(0,Math.min(steps.length-1,s+d));render();
+  if(s>=steps.length-1){clearInterval(timer);timer=null;document.getElementById('play').textContent='▶ FFN(matmul→活性)を流す';}}
+function play(){if(timer){clearInterval(timer);timer=null;document.getElementById('play').textContent='▶ FFN(matmul→活性)を流す';return;}
+  if(s>=steps.length-1)s=0;document.getElementById('play').textContent='⏸ 停止';render();
+  timer=setInterval(()=>{if(s>=steps.length-1)step(0);else step(1);},1700);}
+document.getElementById('next').onclick=()=>step(1);document.getElementById('prev').onclick=()=>step(-1);
+document.getElementById('play').onclick=play;
+document.getElementById('reset').onclick=()=>{clearInterval(timer);timer=null;s=0;document.getElementById('play').textContent='▶ FFN(matmul→活性)を流す';render();};
+render();
+</script>
+</body>
+</html>
