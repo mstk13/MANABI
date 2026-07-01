@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HW階層 L2〜L7 — 自分で埋める(matmulを貫く)</title>
+<!-- ============================================================
+  【自作演習】L2〜L7 の各層を「自分の言葉で」書き込む足場。
+  やること:
+    - 下の <script> の DATA[...] の b: "…" を、自分の理解で書き換える
+    - 最初はチャットの説明を見ずに(思い出す=一番効く)。詰まったら見返す
+    - 書けたらブラウザを再読込 → クリックで確認 → AIに添削してもらう
+  例は ttnn.matmul(x, W) を L7→L2 まで貫く形で統一すると繋がりやすい
+============================================================ -->
+<style>
+  :root{--bg:#0f1420;--card:#171d2b;--ink:#e6ebf5;--sub:#9fb0c8;--line:#222c41;--code:#0c111c;
+    --l7:#ffcf85;--l6:#37d67a;--l5:#7ea8ff;--l4:#c08bff;--l3:#ffaf45;--l2:#ff6b8b}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,"Segoe UI",Roboto,"Hiragino Kaku Gothic ProN",Meiryo,sans-serif;
+    line-height:1.6;padding:22px}
+  .wrap{max-width:860px;margin:0 auto}
+  h1{font-size:20px;margin:0 0 4px}
+  .lead{color:var(--sub);font-size:13.5px;margin:0 0 12px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin:12px 0}
+  .stack{display:flex;flex-direction:column;gap:5px}
+  .layer{border-left:5px solid;border-radius:9px;padding:9px 12px;background:#141b28;cursor:pointer;transition:.14s}
+  .layer:hover{background:#1c2434}.layer.on{box-shadow:0 0 0 2px rgba(255,255,255,.25)}
+  .layer .t{font-weight:700;font-size:13.5px}.layer .r{font-size:11.5px;color:var(--sub)}
+  .arr{text-align:center;color:#46536f;font-size:12px}
+  .panel{background:var(--code);border:1px solid var(--line);border-radius:11px;padding:14px;margin-top:12px}
+  .panel h3{margin:0 0 6px;font-size:15px}.panel p{color:#cdd9ef;font-size:13.5px;margin:5px 0}
+  code{font-family:ui-monospace,monospace;background:var(--code);border:1px solid var(--line);border-radius:5px;padding:1px 5px;font-size:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>HW階層 L2〜L7 を自分の言葉で(例: ttnn.matmul を貫く)</h1>
+  <p class="lead">各層をクリック → 下に「自分のメモ」が出る。<b>この HTML の DATA の b: を書き換えて</b>自分の理解を入れよう。
+    ✏️ が未記入の印。上ほど抽象(モデル)、下ほど具体(回路)。</p>
+
+  <div class="card">
+    <div class="stack" id="stack">
+      <div class="layer" data-id="l7" style="border-color:var(--l7)"><div class="t">L7 モデル(Llama 1層)</div><div class="r">TT-NN op の並び</div></div>
+      <div class="arr">▼ 翻訳</div>
+      <div class="layer" data-id="l6" style="border-color:var(--l6)"><div class="t">L6 TT-NN</div><div class="r">ttnn.matmul など高レベルop</div></div>
+      <div class="arr">▼</div>
+      <div class="layer" data-id="l5" style="border-color:var(--l5)"><div class="t">L5 Metalium ランタイム</div><div class="r">プログラム化・CB確保・コア配布</div></div>
+      <div class="arr">▼</div>
+      <div class="layer" data-id="l4" style="border-color:var(--l4)"><div class="t">L4 LLK カーネル</div><div class="r">matmul_tiles(C++)</div></div>
+      <div class="arr">▼</div>
+      <div class="layer" data-id="l3" style="border-color:var(--l3)"><div class="t">L3 命令(ISA)</div><div class="r">UNPACR / MVMUL / PACR</div></div>
+      <div class="arr">▼</div>
+      <div class="layer" data-id="l2" style="border-color:var(--l2)"><div class="t">L2 演算エンジン(HW)</div><div class="r">FPU/SFPU・Src/Dst・L1</div></div>
+    </div>
+    <div class="panel" id="panel"><h3>層をクリック</h3><p>自分のメモが出ます。DATA を書き換えて埋めよう。</p></div>
+  </div>
+  <p class="lead">添削してほしくなったら、このファイルを保存して「hw_layers 見て」と言えばOK。関連: <a href="../tt-integration/tt_integration.html">AI⇄SW⇄HW統合</a> · <a href="../tensix-compute/tensix_compute.html">Tensix HW</a></p>
+</div>
+
+<script>
+  // ▼▼▼ ここを自分の言葉で埋める(b の中身)。✏️ は未記入マーク ▼▼▼
+  const DATA = {
+    l7: { t:"L7 モデル(Llama 1層)", b:"✏️(ここに: L7は何をする層? matmulはここでどう現れる? 下のL6に何を渡す?)" },
+    l6: { t:"L6 TT-NN",            b:"✏️(ここに: ttnn.matmul は何を受け取り、何を決めて、L5に何を渡す?)" },
+    l5: { t:"L5 Metalium",         b:"✏️(ここに: matmulを実行するために何を用意する? CB/コア配布/JIT…)" },
+    l4: { t:"L4 LLK カーネル",      b:"✏️(ここに: matmul_tiles は1タイルで何をする? 3スレッドとは?)" },
+    l3: { t:"L3 命令(ISA)",       b:"✏️(ここに: 1タイル行列積はどんな命令列になる?)" },
+    l2: { t:"L2 演算エンジン(HW)", b:"✏️(ここに: 命令が来ると HW の何が動く? Src/FPU/Dst…)" },
+  };
+  // ↓ 仕組み(触らなくてOK)
+  const panel=document.getElementById('panel');
+  function show(id){document.querySelectorAll('.layer').forEach(x=>x.classList.toggle('on',x.dataset.id===id));
+    const d=DATA[id];panel.innerHTML=`<h3>${d.t}</h3><p>${d.b}</p>`;}
+  document.querySelectorAll('.layer').forEach(x=>{x.onclick=()=>show(x.dataset.id);});
+  show('l7');
+</script>
+</body>
+</html>
