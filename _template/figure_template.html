@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- ▼▼▼ ここを自分のテーマ名に変える ▼▼▼ -->
+<title>自作図テンプレート</title>
+<!-- ============================================================
+  自作図テンプレート(クリックで説明が出る図)
+  使い方:
+    1. このフォルダごとコピー → 名前を変える(例 my-topic/)
+    2. ①タイトル ②ボックス ③説明データ の3か所を書き換える
+    3. ブラウザで開いて確認(ローカルで動く。JS/ネット不要)
+  色やレイアウトはこの <style> をいじればOK(触らなくても動く)
+============================================================ -->
+<style>
+  :root{--bg:#0f1420;--card:#171d2b;--ink:#e6ebf5;--sub:#9fb0c8;--line:#222c41;--code:#0c111c;--accent:#7ea8ff}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,"Segoe UI",Roboto,"Hiragino Kaku Gothic ProN",Meiryo,sans-serif;
+    line-height:1.6;padding:22px}
+  .wrap{max-width:900px;margin:0 auto}
+  h1{font-size:21px;margin:0 0 4px}
+  .lead{color:var(--sub);font-size:14px;margin:0 0 14px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;margin:13px 0}
+  .flow{display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:center}
+  .box{border:2px solid var(--accent);border-radius:11px;padding:10px 13px;min-width:100px;text-align:center;
+       cursor:pointer;background:#141b28;transition:.14s;font-size:13px}
+  .box:hover{filter:brightness(1.2)}
+  .box.on{box-shadow:0 0 0 3px rgba(255,255,255,.28)}
+  .box .t{font-weight:700}
+  .arr{color:#46536f;font-size:16px}
+  .panel{background:var(--code);border:1px solid var(--line);border-radius:11px;padding:14px;margin-top:12px}
+  .panel h3{margin:0 0 6px;font-size:15px}.panel p{color:#cdd9ef;font-size:13.5px;margin:5px 0}
+  code{font-family:ui-monospace,monospace;background:var(--code);border:1px solid var(--line);border-radius:5px;padding:1px 5px;font-size:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <!-- ①【タイトルと説明】自分の言葉に -->
+  <h1>自作図テンプレート(ここにタイトル)</h1>
+  <p class="lead">ここに1〜2行の説明。ボックスをクリックすると下に詳細が出ます。</p>
+
+  <div class="card">
+    <!-- ②【ボックス】data-id を付けたボックスを並べる。矢印は <div class="arr"> -->
+    <!--    ボックスを増やす/減らす/文言を変えるのはこのブロック -->
+    <div class="flow" id="flow">
+      <div class="box" data-id="a"><div class="t">ステップA</div></div>
+      <div class="arr">▶</div>
+      <div class="box" data-id="b"><div class="t">ステップB</div></div>
+      <div class="arr">▶</div>
+      <div class="box" data-id="c"><div class="t">ステップC</div></div>
+    </div>
+    <div class="panel" id="panel"><h3>ボックスをクリック</h3><p>下に説明が出ます。</p></div>
+  </div>
+</div>
+
+<script>
+  // ③【説明データ】data-id ごとに { t: 見出し, b: 説明(HTML可) } を書く
+  //    ボックスを足したら、ここにも同じ id で1行足す
+  const DATA = {
+    a: { t: "ステップA", b: "ここに A の説明。<b>太字</b>や <code>コード</code> も書ける。" },
+    b: { t: "ステップB", b: "ここに B の説明。" },
+    c: { t: "ステップC", b: "ここに C の説明。" },
+  };
+
+  // ↓ ここから下は仕組み(触らなくてOK)
+  const panel = document.getElementById('panel');
+  function show(id){
+    document.querySelectorAll('.box').forEach(x => x.classList.toggle('on', x.dataset.id === id));
+    const d = DATA[id];
+    panel.innerHTML = `<h3>${d.t}</h3><p>${d.b}</p>`;
+  }
+  document.querySelectorAll('.box').forEach(x => {
+    x.onclick = () => show(x.dataset.id);
+    x.onmouseenter = () => show(x.dataset.id);
+  });
+  show('a'); // 最初に開いておくボックス
+</script>
+</body>
+</html>
