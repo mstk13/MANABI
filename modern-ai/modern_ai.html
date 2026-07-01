@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>近年のAIは何をしているか — Transformer の処理</title>
+<style>
+  :root{--bg:#0f1420;--card:#171d2b;--ink:#e6ebf5;--sub:#9fb0c8;--line:#222c41;--code:#0c111c;
+    --attn:#ffaf45;--ffn:#7ea8ff;--io:#37d67a;--misc:#5b6680}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,"Segoe UI",Roboto,"Hiragino Kaku Gothic ProN",Meiryo,sans-serif;
+    line-height:1.6;padding:22px}
+  .wrap{max-width:920px;margin:0 auto}
+  h1{font-size:21px;margin:0 0 4px}
+  .lead{color:var(--sub);font-size:14px;margin:0 0 12px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;margin:13px 0}
+  .pipe{display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:center}
+  .blk{border:2px solid;border-radius:11px;padding:9px 11px;min-width:92px;text-align:center;cursor:pointer;background:#141b28;transition:.14s;font-size:12.5px}
+  .blk:hover{filter:brightness(1.18)}.blk.on{box-shadow:0 0 0 3px rgba(255,255,255,.28)}
+  .blk .t{font-weight:700}.blk .s{font-size:10px;color:var(--sub);margin-top:1px}
+  .arr{color:#46536f;font-size:15px}
+  .loop{font-size:11px;color:var(--attn);border:1px dashed var(--attn);border-radius:8px;padding:3px 8px}
+  .panel{background:var(--code);border:1px solid var(--line);border-radius:11px;padding:13px;margin-top:12px;font-size:13px}
+  .panel h3{margin:0 0 5px;font-size:15px}.panel p{color:#cdd9ef;margin:5px 0}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  @media(max-width:680px){.two{grid-template-columns:1fr}}
+  .mini{border:1px solid var(--line);border-radius:10px;padding:11px 13px;font-size:13px}
+  .mini h3{margin:0 0 5px;font-size:14px}.mini.a h3{color:var(--attn)}.mini.f h3{color:var(--ffn)}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:6px}
+  td,th{border:1px solid #2a3550;padding:5px 8px;text-align:left}th{color:var(--sub)}
+  code{font-family:ui-monospace,monospace;background:var(--code);border:1px solid var(--line);border-radius:5px;padding:1px 5px;font-size:12px}
+  a{color:var(--ffn)} b.a{color:var(--attn)}b.f{color:var(--ffn)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>近年のAIは何をしているか(Transformer の処理)</h1>
+  <p class="lead">近年のAI = 巨大な「学習された関数」。入力をベクトルにし、<b class="a">Attention(混ぜる)</b>と
+    <b class="f">FFN(考える)</b>を何十層も通して出力する。<b>各段をクリック</b>で詳細。</p>
+
+  <div class="card">
+    <div class="pipe" id="pipe">
+      <div class="blk" data-id="in" style="border-color:var(--io)"><div class="t">入力</div><div class="s">文/画像</div></div>
+      <div class="arr">▶</div>
+      <div class="blk" data-id="token" style="border-color:var(--io)"><div class="t">トークン化</div><div class="s">単位に分割</div></div>
+      <div class="arr">▶</div>
+      <div class="blk" data-id="embed" style="border-color:var(--io)"><div class="t">埋め込み</div><div class="s">ベクトル化</div></div>
+      <div class="arr">▶</div>
+      <div class="blk" data-id="attn" style="border-color:var(--attn)"><div class="t">Attention</div><div class="s">通信=混ぜる</div></div>
+      <div class="arr">+</div>
+      <div class="blk" data-id="ffn" style="border-color:var(--ffn)"><div class="t">FFN</div><div class="s">計算=考える</div></div>
+      <div class="loop">×N層</div>
+      <div class="arr">▶</div>
+      <div class="blk" data-id="head" style="border-color:var(--io)"><div class="t">出力ヘッド</div><div class="s">次トークン予測</div></div>
+      <div class="arr">↺</div>
+      <div class="blk" data-id="loop" style="border-color:var(--attn)"><div class="t">自己回帰</div><div class="s">1語ずつ生成</div></div>
+    </div>
+    <div class="panel" id="panel"><h3>段をクリック</h3><p>入力→トークン→ベクトル→[Attention+FFN]×N→予測→ループ、の各段の中身が出ます。</p></div>
+  </div>
+
+  <div class="card">
+    <h1 style="font-size:16px">Transformer ブロックの2本柱</h1>
+    <div class="two">
+      <div class="mini a"><h3>Attention=通信(横に混ぜる)</h3>各トークンが<b>他の全トークンを見比べ</b>、関係の深い相手の情報を取り込む=<b>文脈</b>を作る。中身は Q/K/V・スコア・softmax・加重和(全部<b>行列積+softmax</b>)。</div>
+      <div class="mini f"><h3>FFN=計算(縦に考える)</h3>混ぜた後、<b>各トークンを単独で</b>非線形変換して情報を深める(トークン間は無関係=並列)。中身は<b>大きな行列積2〜3本+活性(SiLU/GELU)</b>。</div>
+    </div>
+    <p class="lead" style="margin:10px 0 0">「混ぜる→考える」を N 回。付随して <b>正規化(RMSNorm)</b>で安定化・<b>残差</b>で深くても壊れない・<b>位置(RoPE)</b>で語順を入れる。</p>
+  </div>
+
+  <div class="card">
+    <h1 style="font-size:16px">学習 と 推論(HWの負荷が違う)</h1>
+    <table>
+      <tr><th></th><th>学習(training)</th><th>推論(inference)</th></tr>
+      <tr><td>やること</td><td>順伝播→誤差→逆伝播→重み更新</td><td>順伝播だけ(重み固定)</td></tr>
+      <tr><td>コスト</td><td>超重い(データセンタ)</td><td>軽め(製品・エッジ)</td></tr>
+      <tr><td>特徴</td><td>1回学べば済む</td><td><b>prefill(一括)+ decode(1語ずつ・KVキャッシュ)</b></td></tr>
+    </table>
+    <p class="lead" style="margin:6px 0 0">アクセラの現実的ターゲットは<b>推論</b>。prefill=計算律速 / decode=メモリ帯域律速(memory wall)。</p>
+  </div>
+
+  <div class="card">
+    <h1 style="font-size:16px">近年のAIの家系(Transformer が共通土台)</h1>
+    <table>
+      <tr><th>種類</th><th>例</th><th>中身</th></tr>
+      <tr><td>LLM(デコーダ)</td><td>GPT, Llama</td><td>次トークン予測=文章生成</td></tr>
+      <tr><td>エンコーダ</td><td>BERT</td><td>理解・分類</td></tr>
+      <tr><td>Vision Transformer</td><td>ViT</td><td>画像をパッチ=トークン化</td></tr>
+      <tr><td>マルチモーダル</td><td>GPT-4o, Qwen-VL</td><td>画像+テキストを同じ空間へ</td></tr>
+      <tr><td>拡散モデル</td><td>Stable Diffusion</td><td>ノイズから反復生成(中身にTransformer)</td></tr>
+      <tr><td>MoE(疎)</td><td>Mixtral, DeepSeek</td><td>トークンごとに一部の重みだけ使う</td></tr>
+    </table>
+    <p class="lead" style="margin:6px 0 0">共通項:入力を<b>トークン=ベクトル</b>にし、<b class="a">Attentionで混ぜ</b>・<b class="f">FFNで計算</b>を積む。違いは入力と細部だけ。</p>
+    <p class="lead" style="margin:6px 0 0">→ なぜ計算が重い?数十億パラメータ×トークンごとの積和=<b>GEMMの物量</b>。対策=量子化・KVキャッシュ・タイル化・<a href="../systolic-array/systolic_array.html">専用アレイ</a>=<b>あなたのHW領域</b>。</p>
+  </div>
+  <p class="lead">関連: <a href="../llama-decoder/llama_decoder_gemm.html">Llama 1層のGEMM分解</a> ·
+    <a href="../llama-decoder/model_flow.html">モデルの動き</a> · <a href="../why-tile/why_tile.html">なぜタイル</a> ·
+    <a href="../tt-integration/tt_integration.html">AI⇄SW⇄HW統合</a></p>
+</div>
+
+<script>
+const D={
+ in:{t:"入力",c:"#37d67a",b:"文章・画像・音声など。何であれ最終的に<b>数値ベクトル</b>に変換して扱う。"},
+ token:{t:"トークン化",c:"#37d67a",b:"入力を<b>トークン</b>という単位に分割(文章→単語の断片、画像→16×16パッチ)。モデルはトークン単位で処理する。"},
+ embed:{t:"埋め込み(embedding)",c:"#37d67a",b:"各トークンを長さd(例2048)の<b>ベクトル</b>に変換。意味の近いトークンは近いベクトルになるよう学習済み。ここから全部が数値計算。"},
+ attn:{t:"Attention=通信",c:"#ffaf45",b:"各トークンが<b>他の全トークンを見比べ</b>、関係の深い相手の情報を取り込む=<b>文脈</b>を作る。Q(質問)・K(見出し)・V(中身)を作り、Q·Kで注目度→softmax→Vを加重和。中身は<b>行列積+softmax</b>。"},
+ ffn:{t:"FFN=計算",c:"#7ea8ff",b:"Attentionの後、<b>各トークンを単独で</b>非線形変換して情報を深める。中身は<b>大きな行列積2〜3本 + 活性(SiLU/GELU)</b>。トークン間は無関係=並列。1層で最大の計算量。"},
+ head:{t:"出力ヘッド",c:"#37d67a",b:"最後の層のベクトルから<b>次に来るトークンの確率</b>を出す(語彙全体のスコア→softmax)。LLMはこれで次の1語を決める。"},
+ loop:{t:"自己回帰(生成)",c:"#ffaf45",b:"予測した1トークンを入力に<b>足して、また最初から</b>=1語ずつ生成。過去のK,Vは<b>KVキャッシュ</b>に保存して再計算を省く(decode段)。"}
+};
+const panel=document.getElementById('panel');
+function show(id){document.querySelectorAll('.blk').forEach(b=>b.classList.toggle('on',b.dataset.id===id));
+  const d=D[id];panel.innerHTML=`<h3 style="color:${d.c}">${d.t}</h3><p>${d.b}</p>`;}
+document.querySelectorAll('.blk').forEach(b=>{b.onclick=()=>show(b.dataset.id);b.onmouseenter=()=>show(b.dataset.id);});
+show('attn');
+</script>
+</body>
+</html>
