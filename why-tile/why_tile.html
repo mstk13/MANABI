@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>なぜ「タイル」が単位なのか — 行列積のデータ再利用</title>
+<style>
+  :root{--bg:#0f1420;--card:#171d2b;--ink:#e6ebf5;--sub:#9fb0c8;--line:#222c41;--code:#0c111c;
+    --a:#37d67a;--b:#7ea8ff;--c:#ffaf45}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,"Segoe UI",Roboto,"Hiragino Kaku Gothic ProN",Meiryo,sans-serif;
+    line-height:1.6;padding:22px}
+  .wrap{max-width:900px;margin:0 auto}
+  h1{font-size:21px;margin:0 0 4px}
+  .lead{color:var(--sub);font-size:14px;margin:0 0 14px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;margin:14px 0}
+  .mm{display:flex;align-items:center;justify-content:center;gap:14px;flex-wrap:wrap;margin:6px 0}
+  .grid{display:grid;grid-template-columns:repeat(4,34px);grid-template-rows:repeat(4,34px);gap:3px}
+  .cell{border-radius:5px;display:flex;align-items:center;justify-content:center;font-size:10px;color:#0c111c;font-weight:700;transition:.12s}
+  .ga .cell{background:#1e3a2c;color:#7fe0a8;border:1px solid #2c5a42}
+  .gb .cell{background:#1a2740;color:#9cc0ff;border:1px solid #33507c}
+  .gc .cell{background:#3a2f1a;color:#ffcf85;border:1px solid #6a5230;cursor:pointer}
+  .gc .cell:hover{filter:brightness(1.3)}
+  .ga .cell.hl{background:var(--a);color:#062a16;box-shadow:0 0 0 2px #7fe0a8}
+  .gb .cell.hl{background:var(--b);color:#04203f;box-shadow:0 0 0 2px #9cc0ff}
+  .gc .cell.sel{background:var(--c);color:#3a2600;box-shadow:0 0 0 2px #ffcf85}
+  .op{font-size:22px;color:var(--sub)}
+  .glab{text-align:center;font-size:11px;color:var(--sub);margin-bottom:4px}
+  .narr{background:var(--code);border:1px solid var(--line);border-radius:8px;padding:11px 13px;font-size:13.5px;color:#cfe0ff;min-height:38px;margin-top:10px}
+  table{width:100%;border-collapse:collapse;font-size:13px;margin-top:6px}
+  td,th{border:1px solid #2a3550;padding:6px 9px;text-align:left}th{color:var(--sub)}
+  .chain{display:flex;flex-direction:column;gap:4px;font-size:13px}
+  .chain .s{background:#141b28;border:1px solid var(--line);border-radius:8px;padding:7px 11px}
+  .chain .ar{text-align:center;color:#46536f}
+  code{font-family:ui-monospace,monospace;background:var(--code);border:1px solid var(--line);border-radius:5px;padding:1px 5px;font-size:12px}
+  b.g{color:var(--a)}b.bl{color:var(--b)}b.o{color:var(--c)}
+  a{color:var(--b)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>なぜ「タイル」が単位なのか</h1>
+  <p class="lead">AIの計算はほぼ<b>行列積(GEMM)</b>。行列積は「一度読んだ値を何度も使い回す」構造。
+    その再利用を活かすために <b>2Dのブロック=タイル</b>単位で処理する。下の <b class="o">C の橙タイルをクリック</b>してみて。</p>
+
+  <div class="card">
+    <div class="mm">
+      <div><div class="glab" style="color:var(--c)">C = 出力(4×4タイル)</div><div class="grid gc" id="gc"></div></div>
+      <div class="op">=</div>
+      <div><div class="glab" style="color:var(--a)">A(重み/活性)</div><div class="grid ga" id="ga"></div></div>
+      <div class="op">×</div>
+      <div><div class="glab" style="color:var(--b)">B</div><div class="grid gb" id="gb"></div></div>
+    </div>
+    <div class="narr" id="narr">C の橙タイルをクリック → それを作るのに必要な A の<b class="g">帯(行)</b>と B の<b class="bl">帯(列)</b>が光る。</div>
+  </div>
+
+  <div class="card">
+    <h1 style="font-size:16px">要素ごと vs タイル(なぜタイルが必要か)</h1>
+    <table>
+      <tr><th></th><th>要素ごとに計算</th><th>タイル(32×32)単位</th></tr>
+      <tr><td>1回の計算量</td><td>1 積和</td><td><b>32×32×32 ≈ 3万 積和</b></td></tr>
+      <tr><td>ロードした値の再利用</td><td>ほぼ無し(毎回読み直し)</td><td><b class="o">各値を約32回再利用</b></td></tr>
+      <tr><td>メモリアクセス</td><td>膨大 → <b>メモリ律速(memory wall)</b></td><td><b>1/32以下</b> → 計算律速に近づく</td></tr>
+      <tr><td>命令/制御のオーバヘッド</td><td>1積和ごとに発生</td><td>3万積和で1回=<b>ほぼ無視</b></td></tr>
+    </table>
+    <p class="lead" style="margin:8px 0 0">→ 行列積は「読んだ値を使い回せる」のが命。<b>2Dブロックでまとめて処理</b>すれば、ロード1回で大量の積和が回り、
+      <a href="../ai-accelerator/ai_accel_notes.html">memory wall / ルーフライン</a>を越えられる。要素ごとだと再利用ゼロで潰れる。</p>
+  </div>
+
+  <div class="card">
+    <h1 style="font-size:16px">なぜ 2D で、なぜ 32×32 か(因果の鎖)</h1>
+    <div class="chain">
+      <div class="s"><b>① AIの計算 = 行列積(GEMM)</b>(Llama推論の8〜9割)</div>
+      <div class="ar">▼</div>
+      <div class="s"><b>② 行列積は 2D の再利用構造</b>:出力 C[i,j]=Σ A[i,k]·B[k,j]。A の1行は C の1行全部に、B の1列は C の1列全部に使い回される</div>
+      <div class="ar">▼</div>
+      <div class="s"><b>③ 再利用を活かすには 2D ブロック単位</b>:ブロックを一度ロード→大量の積和→メモリアクセス激減(memory wall回避)</div>
+      <div class="ar">▼</div>
+      <div class="s"><b>④ ハードは固定サイズの 2D 演算グリッド</b>(シストリックアレイ/FPU)+ SIMD幅32 に合わせる → ブロック=<b class="o">32×32 タイル</b></div>
+      <div class="ar">▼</div>
+      <div class="s"><b>⑤ だから「タイル」が計算・データ移動・命令の単位</b>になる</div>
+    </div>
+    <p class="lead" style="margin:8px 0 0">あなたが作った<a href="../systolic-array/systolic_array.html">シストリックアレイ</a>は、まさに④の「2D演算グリッドでタイル行列積をする」もの。タイルが単位なのは、AIの計算(行列積)の再利用構造が2Dだから。</p>
+  </div>
+  <p class="lead">関連: <a href="../llama-decoder/llama_decoder_gemm.html">Llama=GEMMの塊</a> ·
+    <a href="../systolic-array/systolic_array.html">シストリックアレイ</a> ·
+    <a href="../llama-on-tensix/llama_on_tensix.html">Llama×Tensix</a></p>
+</div>
+
+<script>
+const N=4;
+function build(id,cls,click){
+  const g=document.getElementById(id);
+  for(let r=0;r<N;r++)for(let c=0;c<N;c++){
+    const d=document.createElement('div');d.className='cell';d.dataset.r=r;d.dataset.c=c;
+    d.textContent=(cls==='c'?'C':cls==='a'?'A':'B')+r+c;
+    g.appendChild(d);
+  }
+}
+build('gc','c',true);build('ga','a');build('gb','b');
+function clear(){document.querySelectorAll('.cell').forEach(x=>x.classList.remove('hl','sel'));}
+function pick(r,c){
+  clear();
+  document.querySelector(`#gc .cell[data-r="${r}"][data-c="${c}"]`).classList.add('sel');
+  // A の行 r 全部, B の列 c 全部
+  for(let k=0;k<N;k++){
+    document.querySelector(`#ga .cell[data-r="${r}"][data-c="${k}"]`).classList.add('hl');
+    document.querySelector(`#gb .cell[data-r="${k}"][data-c="${c}"]`).classList.add('hl');
+  }
+  document.getElementById('narr').innerHTML=
+    `<b class="o">C${r}${c}</b> = Σ<sub>k</sub> <b class="g">A${r}k</b>·<b class="bl">Bk${c}</b>。`+
+    ` A の<b class="g">行${r}(4タイル)</b>と B の<b class="bl">列${c}(4タイル)</b>をロードして ${N} 回の"タイル行列積"を累算。`+
+    ` <b>この A${r}行は C の${r}行の他タイルにも再利用</b>される=だから帯ごとロードが得。`;
+}
+document.querySelectorAll('#gc .cell').forEach(x=>{x.onclick=()=>pick(+x.dataset.r,+x.dataset.c);});
+pick(1,2);
+</script>
+</body>
+</html>
