@@ -27,6 +27,10 @@
 | **AMBA CHI(コヒーレント相互接続)**: 構造(層/ノード/4チャネル)・AXIとの比較・ReadUniqueの動きをアニメ。AXI↔CHI切替で「スヌープの有無」を体感。NoCのVC/credit/デッドロック回避に接続 | [chi-interconnect/chi_interconnect_notes.md](chi-interconnect/chi_interconnect_notes.md) | [図解(AXI↔CHI再生)](https://mstk13.github.io/MANABI/chi-interconnect/chi_interconnect.html) |
 | **Llama decoder 1層のGEMM分解**: 推論ターゲットの1層を分解→重みGEMM7本+Attnコア2本、演算の8〜9割がGEMM。各ステップの形/役割をクリックで | [llama-decoder/llama_decoder_notes.md](llama-decoder/llama_decoder_notes.md) | [GEMM分解(クリック)](https://mstk13.github.io/MANABI/llama-decoder/llama_decoder_gemm.html) / [モデルの動き(再生)](https://mstk13.github.io/MANABI/llama-decoder/model_flow.html) |
 
+## 🗺 学習ジャーニー(全体の流れ)
+物理設計 → AIアクセラレータ → Llama理解 → CHI → コヒーレンス実装 → 0からのCHI実装 → Tenstorrent実スタック、を各工程クリックで:
+**[journey/journey.html](https://mstk13.github.io/MANABI/journey/journey.html)**
+
 ## 追加のしかた
 1. `トピック名/note.md` を作って書く(図が要れば同じフォルダに `.html`)。
 2. この README の目次に1行足す。

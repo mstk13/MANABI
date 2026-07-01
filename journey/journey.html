@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>学習ジャーニー — 物理設計 → AIアクセラ → CHI → 実装 → TTスタック</title>
+<style>
+  :root{--bg:#0f1420;--card:#171d2b;--ink:#e6ebf5;--sub:#9fb0c8;--line:#222c41;--code:#0c111c;--ac:#7ea8ff;--ok:#37d67a}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,"Segoe UI",Roboto,"Hiragino Kaku Gothic ProN",Meiryo,sans-serif;
+    line-height:1.65;padding:24px}
+  .wrap{max-width:900px;margin:0 auto}
+  h1{font-size:22px;margin:0 0 4px}
+  .lead{color:var(--sub);font-size:14px;margin:0 0 8px}
+  .theme{background:rgba(126,168,255,.1);border:1px solid #2b62d6;border-radius:10px;padding:10px 14px;font-size:13px;color:#cdd9ef;margin:10px 0 18px}
+  .ph{border:1px solid var(--line);border-radius:12px;margin:10px 0;overflow:hidden;background:var(--card)}
+  .head{display:flex;align-items:center;gap:12px;padding:13px 16px;cursor:pointer;transition:.15s}
+  .head:hover{background:#1c2434}
+  .num{flex:0 0 auto;width:30px;height:30px;border-radius:50%;background:#2b62d6;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px}
+  .htext{flex:1}
+  .htext .t{font-weight:700;font-size:15px}
+  .htext .s{font-size:12px;color:var(--sub);margin-top:1px}
+  .chev{color:var(--sub);font-size:13px}
+  .body{display:none;padding:4px 16px 16px 58px;font-size:13.5px}
+  .body.open{display:block}
+  .body ul{margin:6px 0;padding-left:18px}
+  .body li{margin:3px 0}
+  .lab{display:inline-block;font-size:10.5px;font-weight:700;border-radius:5px;padding:1px 7px;margin-right:6px;color:#0c111c}
+  .lab.did{background:var(--ok)}.lab.why{background:#ffaf45}.lab.art{background:var(--ac)}
+  .links a{display:inline-block;background:#202a3d;border:1px solid #33415c;border-radius:7px;padding:3px 9px;margin:3px 5px 0 0;font-size:12px;color:var(--ac);text-decoration:none}
+  .links a:hover{background:#27344c}
+  a{color:var(--ac)}
+  .foot{color:var(--sub);font-size:12.5px;margin-top:16px}
+  code{font-family:ui-monospace,monospace;background:var(--code);border:1px solid var(--line);border-radius:5px;padding:1px 5px;font-size:12px}
+  .btnrow{margin:8px 0}
+  button{background:#202a3d;color:var(--ink);border:1px solid #33415c;border-radius:8px;padding:6px 11px;font-size:13px;cursor:pointer}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>学習ジャーニー</h1>
+  <p class="lead">物理設計の復習から始まり、AIアクセラレータ → Llama理解 → CHI → コヒーレンス実装 → 0からのCHI実装 → Tenstorrent実スタックまで。各工程をクリックで詳細。</p>
+  <div class="theme">🎯 <b>貫くテーマ</b>:AIアクセラレータの HW/RTL 設計者(Tenstorrent ADIP)になるため、
+    <b>AIモデル → アーキ → 物理設計</b>の縦、そして<b>相互接続(CHI)→ 実スタック(TT)</b>の横を、
+    「作って・動かして・検証する」で一本につなぐ。</p>
+  <div class="btnrow"><button id="expand">全部開く</button> <button id="collapse">全部閉じる</button></div>
+
+  <!-- Phase 1 -->
+  <div class="ph"><div class="head"><div class="num">1</div><div class="htext"><div class="t">物理設計(配置配線)の復習</div><div class="s">フロアプラン→配置→CTS→配線→署名。各段で slack がどう動くか</div></div><div class="chev">▼</div></div>
+    <div class="body">
+      <p><span class="lab did">やった</span>合成後のネットリストを座標に落とす流れを復習。<b>global/detailed placement</b>(重なり許容→整列)、<b>global/detailed route</b>(混雑見積り→実メタル+DRC)。</p>
+      <p><span class="lab did">気づき</span><b>段が進むほど slack 悪化</b>。特に<b>配線後が最悪点</b>=ワイヤRCが初めて正確に乗るから。だから各段でSTAを回し直す。</p>
+      <p><span class="lab why">なぜ</span>後のアレイ設計で「段数↔fmax↔配置後slack」を実測する土台。</p>
+      <div class="links"><a href="https://mstk13.github.io/MANABI/physical-design/pd.html" target="_blank">図: 物理設計</a></div>
+    </div></div>
+
+  <!-- Phase 2 -->
+  <div class="ph"><div class="head"><div class="num">2</div><div class="htext"><div class="t">AIアクセラレータ実装計画 + Week1</div><div class="s">渡米前 E2E 計画(はしご)。Llama GEMM 分解 + golden</div></div><div class="chev">▼</div></div>
+    <div class="body">
+      <p><span class="lab did">やった</span>「AIモデル→アーキ→合成/段数→STA→物理配置→PPA」を1つの実物(weight-stationary シストリックアレイ)で一周する<b>7週計画</b>を策定。Week1 で <b>Llama 1層を GEMM に分解</b>し、<b>INT8量子化GEMM の numpy golden</b>を実装(3×3が図と一致・量子化 PCC=0.9999)。</p>
+      <p><span class="lab did">やった</span>シストリックアレイ(積和を流しながら貯める)の動作を 3×3 アニメで理解。</p>
+      <p><span class="lab why">なぜ</span>RTL を書く前に「正解」を固定 → 機械検証できる(bit-exact + PCC)。</p>
+      <div class="links">
+        <a href="https://mstk13.github.io/MANABI/systolic-array/systolic_array.html" target="_blank">図: シストリックアレイ</a>
+        <a href="https://github.com/mstk13/SHISAKU/blob/main/DENNO/Accel/model/gemm_golden.py" target="_blank">code: gemm_golden.py</a>
+        <a href="https://github.com/mstk13/SHISAKU/blob/main/DENNO/Accel/model/llama_layer_gemm.md" target="_blank">note: GEMM分解</a>
+      </div>
+    </div></div>
+
+  <!-- Phase 3 -->
+  <div class="ph"><div class="head"><div class="num">3</div><div class="htext"><div class="t">Llama モデルの理解</div><div class="s">decoder 1層 = 7重みGEMM + 2 Attnコア。混ぜる/考える</div></div><div class="chev">▼</div></div>
+    <div class="body">
+      <p><span class="lab did">やった</span>Llama decoder 1層を分解:<b>重みGEMM 7本</b>(Q/K/V/O射影・FFN gate/up/down)+ <b>Attnコア2本</b>(QKᵀ, ·V)。演算の8〜9割がGEMM。</p>
+      <p><span class="lab did">やった</span>モデルの動きを2本柱で理解:<b>Attention=通信(トークンを横に混ぜる)</b> / <b>FFN=計算(各トークンを個別に深める)</b>。</p>
+      <div class="links">
+        <a href="https://mstk13.github.io/MANABI/llama-decoder/llama_decoder_gemm.html" target="_blank">図: GEMM分解(クリック)</a>
+        <a href="https://mstk13.github.io/MANABI/llama-decoder/model_flow.html" target="_blank">図: モデルの動き(再生)</a>
+      </div>
+    </div></div>
+
+  <!-- Phase 4 -->
+  <div class="ph"><div class="head"><div class="num">4</div><div class="htext"><div class="t">CHI の学習(概念)</div><div class="s">なぜCHI・AXI比較・4チャネル・ノード・メッシュ</div></div><div class="chev">▼</div></div>
+    <div class="body">
+      <p><span class="lab did">やった</span><b>なぜCHIが要るか</b>=多コアのキャッシュ食い違いを、司書(Home Node)がスヌープで<b>自動修正</b>。AXI(手動flush必要)との比較を AXI↔CHI 切替アニメで。</p>
+      <p><span class="lab did">やった</span>3層(Protocol/Network/Link)、4チャネル(REQ/RSP/SNP/DAT)、ノード(RN/HN/SN)、<b>メッシュ</b>(格子配線でスケール)。</p>
+      <div class="links">
+        <a href="https://mstk13.github.io/MANABI/chi-interconnect/chi_interconnect.html" target="_blank">図: CHI(AXI↔CHI再生)</a>
+        <a href="https://github.com/mstk13/MANABI/blob/main/chi-interconnect/chi_interconnect_notes.md" target="_blank">note: OSS一覧+OpenLLC読解</a>
+      </div>
+    </div></div>
+
+  <!-- Phase 5 -->
+  <div class="ph"><div class="head"><div class="num">5</div><div class="htext"><div class="t">コヒーレンスを実装(概念→RTL)</div><div class="s">MSI/MOESI Python → RTL HN/RN → 本物 OpenLLC 読解</div></div><div class="chev">▼</div></div>
+    <div class="body">
+      <p><span class="lab did">やった</span>状態遷移を手で: <b>MSI</b>(coherence_min.py)→ <b>MOESI</b>(moesi.py, E=バス削減/O=書戻し削減)。トレース+assertで「古い値を読まない/Mは1つ」を検証。</p>
+      <p><span class="lab did">やった</span><b>RTL版 CHIノード</b>:rn_coh_fsm/rn_node/hn_node/chi_mini を SystemVerilog で実装、cocotb で古典シナリオ・ping-pong 全PASS。</p>
+      <p><span class="lab did">やった</span>本物 <b>OpenLLC</b>(Chisel)を読解:self+client の2ディレクトリ・6段MainPipe・バンク分割。自作 hn_node との対応表を作成。</p>
+      <div class="links">
+        <a href="https://mstk13.github.io/MANABI/cache-coherence/coherence_fsm.html" target="_blank">図: 状態機械(クリック遷移)</a>
+        <a href="https://github.com/mstk13/SHISAKU/tree/main/interconnect/coherence_min" target="_blank">code: coherence_min(Python+RTL)</a>
+      </div>
+    </div></div>
+
+  <!-- Phase 6 -->
+  <div class="ph"><div class="head"><div class="num">6</div><div class="htext"><div class="t">CHI を 0 から実装(はしご)</div><div class="s">R1 リンク層(credit)→ R2 トランザクション(TxnID)</div></div><div class="chev">▼</div></div>
+    <div class="body">
+      <p><span class="lab did">やった</span>クリーンな再スタート。<b>R1 = リンク層</b>:flit を <b>L-credit 流量制御</b>で流す(credit送信+FIFO受信)。トークン保存則でオーバフロー無し、cocotbで40 flit順序通り。</p>
+      <p><span class="lab did">やった</span><b>R2 = 1トランザクション</b>:RN→SN の <code>ReadNoSnp</code>→<code>CompData</code> を REQ/DAT 2チャネルで。<b>opcode + TxnID 照合</b>で要求と応答を結ぶ。cocotb PASS。</p>
+      <p><span class="lab why">なぜ</span>「リンク層は固定、チャネルとopcodeを足す」= CHI実装の進め方。R3(HN+SNPでコヒーレンス)へ続く。</p>
+      <div class="links">
+        <a href="https://github.com/mstk13/SHISAKU/tree/main/interconnect/chi" target="_blank">code: chi(R1/R2 RTL+cocotb)</a>
+        <a href="https://github.com/mstk13/SHISAKU/blob/main/interconnect/chi/README.md" target="_blank">はしごロードマップ</a>
+      </div>
+    </div></div>
+
+  <!-- Phase 7 -->
+  <div class="ph"><div class="head"><div class="num">7</div><div class="htext"><div class="t">Tenstorrent 実スタックで実験(tt-sw)</div><div class="s">ハード無し ttsim で ttnn op / LLK / Llama FFN</div></div><div class="chev">▼</div></div>
+    <div class="body">
+      <p><span class="lab did">TT-NN層</span>ハード無し(ttsim)で <b>11 op 全PASS</b>(add/sub/mul/<b>matmul</b>/exp/relu/<b>gelu</b>/sqrt/reciprocal/<b>silu</b>)。</p>
+      <p><span class="lab did">op網羅(C)</span>各opを<b>プロセス隔離</b>し 11/12。<b>rms_norm 動作・layer_norm はttsimクラッシュ</b>(=Llamaは RMSNorm なので好都合)。softmax/reduce/transpose も動作。</p>
+      <p><span class="lab did">LLK層(B)</span>ソース版 <code>pytest --run-simulator</code>:datacopy F32→F32 全PASS、F32→F16+dest_acc は ttsim 未実装。<b>ハード最寄り層</b>を実地確認。</p>
+      <p><span class="lab did">Llama FFN(A)</span><b>SwiGLU FFN</b> <code>down(SiLU(x@Wg)⊙(x@Wu))</code> を ttnn で連結し ttsim 実行、各段が解析 golden と一致。</p>
+      <div class="links">
+        <a href="https://mstk13.github.io/MANABI/tt-stack/tt_stack.html" target="_blank">図: TTスタック(再生)</a>
+        <a href="https://github.com/mstk13/SHISAKU/tree/main/SW/TT_study/examples" target="_blank">code: 実験3本</a>
+      </div>
+    </div></div>
+
+  <p class="foot">全体を貫く成果 = <b>AIモデル(Llama)→ 自作アクセラ(golden)→ 相互接続(CHI/コヒーレンス, 概念→自作RTL→本物OpenLLC)→ 実スタック(Tenstorrent, ハード無し検証)</b> を、すべて「作って動かして検証」で通した。
+  記録: 図=[MANABI](https://github.com/mstk13/MANABI) / コード=[SHISAKU](https://github.com/mstk13/SHISAKU)。</p>
+</div>
+
+<script>
+  document.querySelectorAll('.ph .head').forEach(h=>{
+    h.onclick=()=>{const b=h.nextElementSibling;b.classList.toggle('open');
+      h.querySelector('.chev').textContent=b.classList.contains('open')?'▲':'▼';};
+  });
+  document.getElementById('expand').onclick=()=>document.querySelectorAll('.body').forEach(b=>{b.classList.add('open');b.previousElementSibling.querySelector('.chev').textContent='▲';});
+  document.getElementById('collapse').onclick=()=>document.querySelectorAll('.body').forEach(b=>{b.classList.remove('open');b.previousElementSibling.querySelector('.chev').textContent='▼';});
+  // 最初のフェーズだけ開いておく
+  document.querySelector('.ph .head').click();
+</script>
+</body>
+</html>
