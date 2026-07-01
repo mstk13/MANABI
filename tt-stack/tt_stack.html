@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tenstorrent スタックをハード無し(ttsim)で動かす</title>
+<style>
+  :root{--bg:#0f1420;--card:#171d2b;--ink:#e6ebf5;--sub:#9fb0c8;--line:#222c41;--code:#0c111c;
+    --l1:#37d67a;--l2:#7ea8ff;--l3:#ffaf45;--l4:#c08bff;--l5:#ff6b8b}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,"Segoe UI",Roboto,"Hiragino Kaku Gothic ProN",Meiryo,sans-serif;
+    line-height:1.65;padding:24px}
+  .wrap{max-width:900px;margin:0 auto}
+  h1{font-size:21px;margin:0 0 4px}
+  .lead{color:var(--sub);font-size:14px;margin:0 0 14px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;margin:14px 0}
+  .layout{display:grid;grid-template-columns:1fr 300px;gap:16px}
+  @media(max-width:760px){.layout{grid-template-columns:1fr}}
+  .stack{display:flex;flex-direction:column;gap:0}
+  .layer{position:relative;border:2px solid;border-radius:11px;padding:12px 14px;margin:5px 0;cursor:pointer;
+    transition:.18s;background:#141b28}
+  .layer:hover{filter:brightness(1.15)}
+  .layer.on{box-shadow:0 0 0 3px rgba(255,255,255,.25)}
+  .layer .t{font-weight:700;font-size:14px}
+  .layer .s{font-size:11.5px;color:var(--sub);margin-top:2px}
+  .layer .api{font-family:ui-monospace,monospace;font-size:11px;color:#cdd9ef}
+  .arrowcol{text-align:center;color:#46536f;font-size:14px;line-height:1.1}
+  .hw{border:2px dashed #ff6b8b;border-radius:11px;padding:10px 14px;margin:5px 0;background:rgba(255,107,139,.07);
+    font-size:12.5px;color:#ffc1cd}
+  .panel{background:var(--code);border:1px solid var(--line);border-radius:12px;padding:14px;height:fit-content;position:sticky;top:16px}
+  .panel h3{margin:0 0 6px;font-size:15px}
+  .panel p{font-size:13px;color:#cdd9ef}
+  .controls{display:flex;gap:9px;align-items:center;margin:10px 0 6px;flex-wrap:wrap}
+  button{background:#202a3d;color:var(--ink);border:1px solid #33415c;border-radius:9px;padding:8px 13px;font-size:14px;cursor:pointer}
+  button:hover{background:#27344c}button.primary{background:#2b62d6;border-color:#3b72e6}
+  .narr{background:var(--code);border:1px solid var(--line);border-radius:8px;padding:11px 13px;font-size:14px;color:#cfe0ff;min-height:42px}
+  table{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:6px}
+  td,th{border:1px solid #2a3550;padding:4px 8px;text-align:center}th{color:var(--sub)}
+  .pass{color:#37d67a;font-weight:700}
+  code{font-family:ui-monospace,monospace;background:var(--code);border:1px solid var(--line);border-radius:5px;padding:1px 5px;font-size:12px}
+  a{color:var(--l2)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Tenstorrent スタックを「ハード無し」で動かす(ttsim)</h1>
+  <p class="lead">実機(<code>/dev/tenstorrent</code>)無しの WSL で、<code>ttnn.add(3,4)=7</code> が動く仕組み。
+    レイヤをクリックで説明、<b>▶再生</b>で <code>ttnn.add</code> がスタックを下って結果が返るまでを追う。</p>
+
+  <div class="card">
+    <div class="layout">
+      <div>
+        <div class="stack" id="stack">
+          <div class="layer" data-id="py" style="border-color:var(--l1)"><div class="t">① あなたの Python</div><div class="s">実験コード</div><div class="api">a=ttnn.full(3); b=ttnn.full(4); c=ttnn.add(a,b)</div></div>
+          <div class="arrowcol">▼ 呼ぶ</div>
+          <div class="layer" data-id="ttnn" style="border-color:var(--l2)"><div class="t">② TT-NN(ttnn)</div><div class="s">高レベル演算ライブラリ(PyTorch風API)</div><div class="api">ttnn.add / matmul / gelu / silu …</div></div>
+          <div class="arrowcol">▼ プログラム化</div>
+          <div class="layer" data-id="metal" style="border-color:var(--l3)"><div class="t">③ TT-Metalium ランタイム</div><div class="s">カーネルをJITビルドしコアへ配布</div><div class="api">device / program / kernel dispatch</div></div>
+          <div class="arrowcol">▼ 計算カーネル</div>
+          <div class="layer" data-id="llk" style="border-color:var(--l4)"><div class="t">④ LLK(Low-Level Kernels)</div><div class="s">Tensixコア上のタイル演算(ハード最寄り)</div><div class="api">tile eltwise / matmul / SFPU</div></div>
+          <div class="arrowcol">▼ 実行先が…</div>
+          <div class="layer" data-id="ttsim" style="border-color:var(--l5)"><div class="t">⑤ ttsim(Blackhole 機能シミュレータ)</div><div class="s">本来チップがある所を SW で肩代わり</div><div class="api">libttsim_bh.so(~4–5KHz, 機能のみ)</div></div>
+          <div class="hw">🚫 実チップ(Tensix×多数 + NoC)は無し。⑤ が命令を<b>機能的に</b>実行して結果を返す。</div>
+        </div>
+      </div>
+      <div class="panel" id="panel"><h3>レイヤをクリック</h3><p class="lead">各段が何をするか出ます。または下の ▶再生 で流れを追う。</p></div>
+    </div>
+    <div class="controls">
+      <button id="reset">↺</button><button id="prev">◀</button>
+      <button id="play" class="primary">▶ ttnn.add を流す</button><button id="next">▶</button>
+      <span id="slab" style="font-family:ui-monospace,monospace;font-size:13px;color:#cdd9ef"></span>
+    </div>
+    <div class="narr" id="narr">▶ を押すと <code>ttnn.add(3,4)</code> が ①→⑤ と下り、結果 7.0 が ①へ戻るまでを再生します。</div>
+  </div>
+
+  <div class="card">
+    <h1 style="font-size:16px">実験結果:11 op が ハード無し ttsim で全PASS</h1>
+    <table>
+      <tr><th>op</th><th>結果</th><th>意味</th></tr>
+      <tr><td>add / sub / mul</td><td class="pass">7 / 6 / 12</td><td>要素ごと</td></tr>
+      <tr><td>matmul</td><td class="pass">32</td><td><b>GEMM</b>(AIの主役)</td></tr>
+      <tr><td>exp / sqrt / reciprocal</td><td class="pass">2.72 / 3 / 0.25</td><td>SFPU(特殊関数)</td></tr>
+      <tr><td>relu / gelu / silu</td><td class="pass">0/3 / 0.84 / 0.73</td><td><b>Llama FFN の活性</b></td></tr>
+    </table>
+    <p class="lead" style="margin:8px 0 0">bf16 なので誤差あり(exp=2.7188 vs 2.7183)。読み戻しは torch 無し環境のため
+      <code>tensor.cpu().to_list()</code> を使用(<code>to_numpy()</code>は壊れる)。
+      <code>matmul</code>=GEMM・<code>gelu/silu</code>=SwiGLU活性 と、自作アクセラ学習に地続き。</p>
+  </div>
+  <p class="lead">関連: <a href="../llama-decoder/llama_decoder_gemm.html">Llama 1層のGEMM分解</a> ·
+    <a href="../systolic-array/systolic_array.html">シストリックアレイ</a> · <a href="../ai-accelerator/ai_accel_notes.md">AIアクセラレータ</a></p>
+</div>
+
+<script>
+const D={
+  py:{t:"① あなたの Python",c:"#37d67a",b:"実験スクリプト。<code>ttnn.full</code> で 32×32 タイルの定数テンソルを作り、<code>ttnn.add</code> を呼ぶ。ハードの有無を意識しない(APIは同じ)。"},
+  ttnn:{t:"② TT-NN(ttnn)",c:"#7ea8ff",b:"PyTorch風の高レベル演算ライブラリ。<code>add/matmul/gelu/silu</code>等を提供。内部で「どのタイルにどの計算カーネルを当てるか」を決める。"},
+  metal:{t:"③ TT-Metalium ランタイム",c:"#ffaf45",b:"演算を<b>プログラム(カーネル群)にJITビルド</b>し、(シミュレートされた)Tensixコアへ配布・起動。デバイスの開閉・メモリ配置もここ。"},
+  llk:{t:"④ LLK(Low-Level Kernels)",c:"#c08bff",b:"Tensixコア上で走る<b>タイル単位の計算カーネル</b>(eltwise/matmul/SFPU)。<b>ハードに最も近い層</b>=RTL設計者の関心に直結。"},
+  ttsim:{t:"⑤ ttsim(Blackhole 機能シミュレータ)",c:"#ff6b8b",b:"本来チップがある所を <code>libttsim_bh.so</code> が<b>機能的に</b>肩代わり。命令を実行し正しい値を返すが<b>性能は測れない</b>(~4–5KHz)。<code>/dev/tenstorrent</code> 不要。"}
+};
+const panel=document.getElementById('panel');
+function show(id){
+  document.querySelectorAll('.layer').forEach(l=>l.classList.toggle('on',l.dataset.id===id));
+  const d=D[id];panel.innerHTML=`<h3 style="color:${d.c}">${d.t}</h3><p>${d.b}</p>`;
+}
+document.querySelectorAll('.layer').forEach(l=>{l.onclick=()=>show(l.dataset.id);l.onmouseenter=()=>show(l.dataset.id);});
+
+const steps=[
+  {id:"py",n:"① Python: <code>a=full(3), b=full(4)</code> を(シミュレート)デバイス上に作り <code>ttnn.add(a,b)</code> を呼ぶ。"},
+  {id:"ttnn",n:"② TT-NN: 加算opを受け、32×32タイルにどう計算を割り当てるか決める。"},
+  {id:"metal",n:"③ Metalium: 加算カーネルを<b>JITビルド</b>し、コアへ配布・起動(初回はビルドで少し時間)。"},
+  {id:"llk",n:"④ LLK: Tensixコア上の<b>タイル加算カーネル</b>が 3+4 を各要素で実行。"},
+  {id:"ttsim",n:"⑤ ttsim: 実チップの代わりに命令を<b>機能実行</b> → 7.0 を計算(ハード不要)。"},
+  {id:"ttnn",n:"↑ 結果テンソルが返る。<code>c.cpu().to_list()</code> で読み戻すと <b>7.0</b>。"},
+  {id:"py",n:"① Python に <b>7.0</b> が返る。<code>assert 3+4==7</code> ✓ = LLK→Metalium→TT-NN の縦がハード無しで通った。"}
+];
+let s=0,timer=null;
+function render(){document.getElementById('slab').textContent=`step ${s+1}/${steps.length}`;
+  document.getElementById('narr').innerHTML=steps[s].n;show(steps[s].id);}
+function step(d){s=Math.max(0,Math.min(steps.length-1,s+d));render();
+  if(s>=steps.length-1){clearInterval(timer);timer=null;document.getElementById('play').textContent='▶ ttnn.add を流す';}}
+function play(){if(timer){clearInterval(timer);timer=null;document.getElementById('play').textContent='▶ ttnn.add を流す';return;}
+  if(s>=steps.length-1)s=0;document.getElementById('play').textContent='⏸ 停止';render();
+  timer=setInterval(()=>{if(s>=steps.length-1)step(0);else step(1);},1600);}
+document.getElementById('next').onclick=()=>step(1);
+document.getElementById('prev').onclick=()=>step(-1);
+document.getElementById('play').onclick=play;
+document.getElementById('reset').onclick=()=>{clearInterval(timer);timer=null;s=0;document.getElementById('play').textContent='▶ ttnn.add を流す';render();};
+render();
+</script>
+</body>
+</html>
