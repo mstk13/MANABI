@@ -24,7 +24,8 @@
 <div class="toc">📖
  <a href="#map">全体データフロー</a><a href="#riscv">①5つのRISC-V</a><a href="#unpack">②Unpacker</a>
  <a href="#src">③SrcA/B</a><a href="#fpu">④FPU(行列)</a><a href="#sfpu">⑤SFPU(ベクトル)</a>
- <a href="#dst">⑥Dst</a><a href="#pack">⑦Packer</a><a href="#l1">⑧L1</a><a href="#pipe">パイプライン同期</a><a href="#rtl">RTL視点</a></div>
+ <a href="#dst">⑥Dst</a><a href="#pack">⑦Packer</a><a href="#l1">⑧L1</a><a href="#pipe">パイプライン同期</a><a href="#rtl">RTL視点</a>
+ <a href="#fw" style="color:#d84315">⑨FW深掘り</a><a href="#fw-boot">起動プロトコル</a><a href="#fw-iram">NCRISC IRAM</a><a href="#fw-map">TT-NN→Kernel</a><a href="#fw-compute">Compute内部</a><a href="#fw-mem">メモリマップ</a><a href="#fw-compare">DENNO対比</a></div>
 
 <div class="box key">🧭 <b>一言で</b>：Tensixは「<b>5個の小さなRISC-V(指揮者)</b>」＋「<b>行列/ベクトル演算エンジン(奏者)</b>」の組。
 RISC-Vは計算せず<b>命令を撃つだけ</b>。データ本体はRISC-Vを通らず、<b>Unpacker/PackerがL1を直接叩く</b>。
@@ -157,13 +158,208 @@ RISC-Vは計算せず<b>命令を撃つだけ</b>。データ本体はRISC-Vを�
  <tr><td>精度の設計判断</td><td>Src=19bit / Dst=32bit / Math Fidelity のフェーズ数 — 面積・電力・精度のトレードオフがRTLに直結</td></tr>
 </table>
 
+<!-- ⑨ ファームウェア深掘り -->
+<h2 id="fw">⑨ ファームウェア深掘り — tt-metal ソースから読み解く制御の実態</h2>
+<p>以下は <code>~/tt-metal</code> のソースコード(主に Wormhole 向け)を直接読んで得た知見。ドキュメントに書かれていない内部プロトコルや設計判断を含む。</p>
+
+<!-- 9-1 2フェーズ起動 -->
+<h3 id="fw-boot">9-1. 2フェーズ起動プロトコル(LOAD → GO)</h3>
+<p>BRISCはsubordinateを一斉にGOさせるのではなく、<b>2段階</b>で起動する。</p>
+
+<div class="box" id="boot-anim-box">
+<svg id="boot-svg" width="860" height="280" viewBox="0 0 860 280">
+ <rect width="860" height="280" fill="#fff"/>
+ <!-- Host -->
+ <rect x="30" y="20" width="130" height="36" rx="6" fill="#e3f2fd" stroke="#1565c0"/>
+ <text x="95" y="43" font-size="12" text-anchor="middle" font-weight="700">Host Dispatch</text>
+ <!-- BRISC -->
+ <rect x="220" y="20" width="120" height="36" rx="6" fill="#e8f5e9" stroke="#2e7d32"/>
+ <text x="280" y="43" font-size="12" text-anchor="middle" font-weight="700">BRISC</text>
+ <!-- NCRISC -->
+ <rect x="400" y="20" width="120" height="36" rx="6" fill="#fff3e0" stroke="#ef6c00"/>
+ <text x="460" y="43" font-size="12" text-anchor="middle" font-weight="700">NCRISC</text>
+ <!-- TRISCs -->
+ <rect x="580" y="20" width="140" height="36" rx="6" fill="#fce4ec" stroke="#c62828"/>
+ <text x="650" y="43" font-size="12" text-anchor="middle" font-weight="700">TRISC0/1/2</text>
+ <!-- Timeline lines -->
+ <line x1="95" y1="56" x2="95" y2="260" stroke="#1565c0" stroke-width="2"/>
+ <line x1="280" y1="56" x2="280" y2="260" stroke="#2e7d32" stroke-width="2"/>
+ <line x1="460" y1="56" x2="460" y2="260" stroke="#ef6c00" stroke-width="2"/>
+ <line x1="650" y1="56" x2="650" y2="260" stroke="#c62828" stroke-width="2"/>
+ <!-- Step 1: Launch msg -->
+ <line id="bs1" x1="95" y1="80" x2="280" y2="80" stroke="#333" stroke-width="2" marker-end="url(#a)" opacity="0.2"/>
+ <text id="bt1" x="187" y="74" font-size="11" text-anchor="middle" fill="#333" opacity="0.2">launch msg</text>
+ <!-- Step 2: LOAD -->
+ <line id="bs2" x1="280" y1="110" x2="460" y2="110" stroke="#ef6c00" stroke-width="2" marker-end="url(#a)" opacity="0.2"/>
+ <text id="bt2" x="370" y="104" font-size="11" text-anchor="middle" fill="#ef6c00" opacity="0.2">LOAD (CB pre-populate)</text>
+ <!-- Step 3: NCRISC working -->
+ <rect id="bs3" x="445" y="115" width="30" height="40" fill="#fff3e0" stroke="#ef6c00" opacity="0.2"/>
+ <text id="bt3" x="460" y="140" font-size="10" text-anchor="middle" fill="#ef6c00" opacity="0.2">DMA</text>
+ <!-- Step 4: DONE -->
+ <line id="bs4" x1="460" y1="160" x2="280" y2="160" stroke="#2e7d32" stroke-width="2" stroke-dasharray="4" marker-end="url(#a)" opacity="0.2"/>
+ <text id="bt4" x="370" y="154" font-size="11" text-anchor="middle" fill="#2e7d32" opacity="0.2">DONE</text>
+ <!-- Step 5: GO to all -->
+ <line id="bs5a" x1="280" y1="190" x2="460" y2="190" stroke="#ef6c00" stroke-width="2" marker-end="url(#a)" opacity="0.2"/>
+ <line id="bs5b" x1="280" y1="190" x2="650" y2="190" stroke="#c62828" stroke-width="2" marker-end="url(#a)" opacity="0.2"/>
+ <text id="bt5" x="465" y="184" font-size="11" text-anchor="middle" fill="#333" opacity="0.2">GO (kernel実行)</text>
+ <!-- Step 6: All DONE -->
+ <line id="bs6a" x1="460" y1="240" x2="280" y2="240" stroke="#2e7d32" stroke-width="1.5" stroke-dasharray="4" marker-end="url(#a)" opacity="0.2"/>
+ <line id="bs6b" x1="650" y1="240" x2="280" y2="240" stroke="#2e7d32" stroke-width="1.5" stroke-dasharray="4" marker-end="url(#a)" opacity="0.2"/>
+ <text id="bt6" x="465" y="234" font-size="11" text-anchor="middle" fill="#2e7d32" opacity="0.2">全DONE → 次を待つ</text>
+</svg>
+<button onclick="playBoot()" style="margin:6px 0;padding:6px 16px;cursor:pointer;border:1px solid #00838f;background:#e0f7fa;border-radius:4px;font-size:13px">▶ 起動シーケンスを再生</button>
+<script>
+function playBoot(){
+ const steps=[
+  {ids:['bs1','bt1'],delay:0},
+  {ids:['bs2','bt2'],delay:600},
+  {ids:['bs3','bt3'],delay:1200},
+  {ids:['bs4','bt4'],delay:1800},
+  {ids:['bs5a','bs5b','bt5'],delay:2400},
+  {ids:['bs6a','bs6b','bt6'],delay:3200}
+ ];
+ // reset
+ document.querySelectorAll('#boot-svg [id^="bs"],#boot-svg [id^="bt"]').forEach(e=>e.setAttribute('opacity','0.12'));
+ steps.forEach(s=>{
+  setTimeout(()=>{
+   s.ids.forEach(id=>{const el=document.getElementById(id);if(el)el.setAttribute('opacity','1');});
+  },s.delay);
+ });
+}
+</script>
+</div>
+<div class="box key">
+<b>なぜ2フェーズか</b>：compute kernelがCBから読む前にデータがL1に無いと空読みになる。NCRISCに先行してCBをロードさせることで、TRISCが走り始めた瞬間からデータが揃っている。<b>プリフェッチ付きダブルバッファリング</b>の一種。
+</div>
+<p><b>同期構造体</b> (<code>core_config.h:21-29</code>)：4バイトの <code>subordinate_map_t</code> に各subordinateの状態を書く。ポーリングベース（ハードウェア割込みなし）。</p>
+<table>
+ <tr><th>値</th><th>定数名</th><th>意味</th></tr>
+ <tr><td>0x00</td><td><code>RUN_SYNC_MSG_DONE</code></td><td>subordinate完了</td></tr>
+ <tr><td>0x01</td><td><code>RUN_SYNC_MSG_LOAD</code></td><td>NCRISCにCBロード指示</td></tr>
+ <tr><td>0x40</td><td><code>RUN_SYNC_MSG_INIT</code></td><td>初期化待ち</td></tr>
+ <tr><td>0x80</td><td><code>RUN_SYNC_MSG_GO</code></td><td>kernel実行開始</td></tr>
+</table>
+
+<!-- 9-2 NCRISC IRAM -->
+<h3 id="fw-iram">9-2. NCRISCの独自IRAM(16KB)</h3>
+<p>5つのRISC-Vの中で<b>NCRISCだけが独立した命令メモリ(IRAM)</b>を持つ。</p>
+<table>
+ <tr><th>リソース</th><th>BRISC</th><th>NCRISC</th><th>TRISC0/1/2</th></tr>
+ <tr><td>FWサイズ</td><td>6KB+256B</td><td>2KB</td><td>各1.5KB</td></tr>
+ <tr><td>Kernelサイズ</td><td>—</td><td><b>16KB (IRAM)</b></td><td>各1432KB (L1共有)</td></tr>
+ <tr><td>ローカルメモリ</td><td>4KB</td><td>4KB</td><td>各2KB</td></tr>
+ <tr><td>命令配置</td><td>L1共有</td><td><b>0xFFC00000 (専用)</b></td><td>L1共有</td></tr>
+</table>
+<div class="box key"><b>なぜ独自IRAMか</b>：NCRISCのdatamovement kernelはL1を大量に読み書きする。命令フェッチとDMAデータが同じL1を競合すると<b>バンクコンフリクト</b>で帯域半減。専用IRAMに命令を置くことで、L1帯域を100%データ転送に使える。</div>
+
+<!-- 9-3 TT-NN mapping -->
+<h3 id="fw-map">9-3. TT-NN op → Metalium kernel の具体的マッピング</h3>
+<div class="box" id="mapping-box">
+<svg id="map-svg" width="860" height="320" viewBox="0 0 860 320">
+ <rect width="860" height="320" fill="#fff"/>
+ <!-- Layer 1: Python -->
+ <rect x="30" y="20" width="800" height="40" rx="8" fill="#e8eaf6" stroke="#3f51b5"/>
+ <text x="430" y="45" font-size="13" text-anchor="middle" font-weight="700">① Python: ttnn.matmul(A, B)</text>
+ <!-- Arrow -->
+ <line x1="430" y1="60" x2="430" y2="80" stroke="#333" stroke-width="2" marker-end="url(#a)"/>
+ <!-- Layer 2: Config -->
+ <rect x="30" y="80" width="800" height="40" rx="8" fill="#e3f2fd" stroke="#1565c0"/>
+ <text x="430" y="105" font-size="13" text-anchor="middle" font-weight="700">② ProgramConfig選択 (matmul.py)</text>
+ <text x="430" y="115" font-size="10" text-anchor="middle" fill="#555">MultiCoreReuse / MultiCoreReuseMultiCast / ...</text>
+ <line x1="430" y1="120" x2="430" y2="140" stroke="#333" stroke-width="2" marker-end="url(#a)"/>
+ <!-- Layer 3: C++ -->
+ <rect x="30" y="140" width="800" height="40" rx="8" fill="#e8f5e9" stroke="#2e7d32"/>
+ <text x="430" y="165" font-size="13" text-anchor="middle" font-weight="700">③ C++ Program Factory: create_program()</text>
+ <line x1="430" y1="180" x2="430" y2="200" stroke="#333" stroke-width="2" marker-end="url(#a)"/>
+ <!-- Layer 4: Kernels (3 branches) -->
+ <rect x="30" y="200" width="240" height="55" rx="8" fill="#fff3e0" stroke="#ef6c00"/>
+ <text x="150" y="222" font-size="12" text-anchor="middle" font-weight="700">Reader Kernel</text>
+ <text x="150" y="238" font-size="10" text-anchor="middle" fill="#ef6c00">RISCV_1 (NCRISC) + NOC_1</text>
+ <text x="150" y="250" font-size="10" text-anchor="middle">DRAM→L1 CB (noc_async_read)</text>
+ <rect x="310" y="200" width="240" height="55" rx="8" fill="#fce4ec" stroke="#c62828"/>
+ <text x="430" y="222" font-size="12" text-anchor="middle" font-weight="700">Compute Kernel</text>
+ <text x="430" y="238" font-size="10" text-anchor="middle" fill="#c62828">TRISC0/1/2 (自動3分割)</text>
+ <text x="430" y="250" font-size="10" text-anchor="middle">UNPACK→MATH→PACK</text>
+ <rect x="590" y="200" width="240" height="55" rx="8" fill="#e8f5e9" stroke="#2e7d32"/>
+ <text x="710" y="222" font-size="12" text-anchor="middle" font-weight="700">Writer Kernel</text>
+ <text x="710" y="238" font-size="10" text-anchor="middle" fill="#2e7d32">RISCV_0 (BRISC) + NOC_0</text>
+ <text x="710" y="250" font-size="10" text-anchor="middle">L1 CB→DRAM (noc_async_write)</text>
+ <!-- arrows from factory to kernels -->
+ <line x1="300" y1="200" x2="150" y2="200" stroke="#ef6c00" stroke-width="1.5" marker-end="url(#a)"/>
+ <line x1="430" y1="195" x2="430" y2="200" stroke="#c62828" stroke-width="1.5"/>
+ <line x1="560" y1="200" x2="710" y2="200" stroke="#2e7d32" stroke-width="1.5" marker-end="url(#a)"/>
+ <!-- CB labels -->
+ <rect x="240" y="270" width="90" height="30" rx="4" fill="#d1c4e9" stroke="#673ab7"/>
+ <text x="285" y="290" font-size="11" text-anchor="middle">CB0/CB1 入力</text>
+ <rect x="520" y="270" width="90" height="30" rx="4" fill="#d1c4e9" stroke="#673ab7"/>
+ <text x="565" y="290" font-size="11" text-anchor="middle">CB16 出力</text>
+ <line x1="150" y1="255" x2="240" y2="280" stroke="#673ab7" stroke-width="1.5" marker-end="url(#a)"/>
+ <line x1="430" y1="255" x2="370" y2="280" stroke="#673ab7" stroke-width="1.5" marker-end="url(#a)"/>
+ <line x1="430" y1="255" x2="520" y2="280" stroke="#673ab7" stroke-width="1.5" marker-end="url(#a)"/>
+ <line x1="610" y1="280" x2="710" y2="255" stroke="#673ab7" stroke-width="1.5" marker-end="url(#a)"/>
+</svg>
+<div class="legend">CreateKernel() で3種のカーネルを登録。Reader/WriterはBRISC/NCRISCに割り当て、Computeは自動でTRISC0/1/2に3分割される。CB(Circular Buffer)で Producer-Consumer 同期。</div>
+</div>
+
+<!-- 9-4 Compute kernel pattern -->
+<h3 id="fw-compute">9-4. Compute Kernel内部 — UNPACK/MATH/PACKマクロ</h3>
+<div class="box">
+<pre style="font-size:12px;line-height:1.5;margin:0;overflow-x:auto"><span style="color:#888">// eltwise_binary.cpp のパターン (実際のtt-metalコード)</span>
+tile_regs_acquire();                       <span style="color:#888">// Dst レジスタを確保</span>
+<span style="color:#ef6c00">UNPACK</span>(llk_unpack_AB(cb0, cb1, i, i));     <span style="color:#888">// → TRISC0: L1→SrcA/SrcBへ展開</span>
+<span style="color:#c62828">MATH</span>(llk_math_eltwise_binary(i));          <span style="color:#888">// → TRISC1: FPU で演算 → Dst</span>
+tile_regs_commit();                        <span style="color:#888">// Dst を packer に渡す準備完了</span>
+<span style="color:#2e7d32">PACK</span>(llk_pack(i, cb_out));                 <span style="color:#888">// → TRISC2: Dst → L1 出力CBへ</span></pre>
+</div>
+<p><b>matmulの場合のMOP設定</b>: FPUの<b>アドレス修飾ユニット</b>を設定し、SrcA/SrcB/Dstのポインタを自動インクリメント。32×32タイルの内部を<b>8行チャンク</b>単位で処理。<b>Math Fidelity</b>に応じて乗算フェーズを1〜4回繰り返す。</p>
+
+<!-- 9-5 Memory map -->
+<h3 id="fw-mem">9-5. メモリマップ(Wormhole / L1レイアウト)</h3>
+<div class="box">
+<svg width="400" height="360" viewBox="0 0 400 360">
+ <rect width="400" height="360" fill="#fff"/>
+ <text x="10" y="18" font-size="12" font-weight="700">L1 SRAM (1464 KB)</text>
+ <!-- blocks -->
+ <rect x="20" y="28" width="180" height="40" fill="#d1c4e9" stroke="#673ab7"/><text x="110" y="48" font-size="10" text-anchor="middle">0x0000_0000</text><text x="110" y="62" font-size="11" text-anchor="middle" font-weight="700">Application (CB, tensor)</text>
+ <rect x="20" y="72" width="180" height="30" fill="#bbdefb" stroke="#1565c0"/><text x="110" y="85" font-size="10" text-anchor="middle">0x0001_0000</text><text x="110" y="97" font-size="10" text-anchor="middle">Mailbox (12.6KB) + subordinate_sync</text>
+ <rect x="20" y="106" width="180" height="24" fill="#c8e6c9" stroke="#2e7d32"/><text x="110" y="122" font-size="10" text-anchor="middle">0x0001_6000 BRISC FW (6.3KB)</text>
+ <rect x="20" y="134" width="180" height="24" fill="#fff3e0" stroke="#ef6c00"/><text x="110" y="150" font-size="10" text-anchor="middle">0x0001_8600 NCRISC FW (2KB)</text>
+ <rect x="20" y="162" width="180" height="24" fill="#fce4ec" stroke="#c62828"/><text x="110" y="178" font-size="10" text-anchor="middle">0x0001_8E00 TRISC0 FW (1.5KB)</text>
+ <rect x="20" y="190" width="180" height="24" fill="#fce4ec" stroke="#c62828"/><text x="110" y="206" font-size="10" text-anchor="middle">0x0001_9600 TRISC1 FW (1.5KB)</text>
+ <rect x="20" y="218" width="180" height="24" fill="#fce4ec" stroke="#c62828"/><text x="110" y="234" font-size="10" text-anchor="middle">0x0001_9E00 TRISC2 FW (1.5KB)</text>
+ <!-- separate memories -->
+ <text x="230" y="46" font-size="12" font-weight="700">専用メモリ</text>
+ <rect x="230" y="56" width="160" height="28" fill="#fff3e0" stroke="#ef6c00"/><text x="310" y="75" font-size="10" text-anchor="middle">0xFFC0_0000 NCRISC IRAM (16KB)</text>
+ <rect x="230" y="90" width="160" height="28" fill="#eceff1" stroke="#607d8b"/><text x="310" y="109" font-size="10" text-anchor="middle">0xFFB0_0000 Local mem (per RISC)</text>
+ <text x="230" y="140" font-size="12" font-weight="700">HWレジスタ</text>
+ <rect x="230" y="150" width="160" height="22" fill="#f5f5f5" stroke="#999"/><text x="310" y="165" font-size="9" text-anchor="middle">0xFFB1_1000 TDMA</text>
+ <rect x="230" y="176" width="160" height="22" fill="#f5f5f5" stroke="#999"/><text x="310" y="191" font-size="9" text-anchor="middle">0xFFB8_0000 MOP Config</text>
+ <rect x="230" y="202" width="160" height="22" fill="#f5f5f5" stroke="#999"/><text x="310" y="217" font-size="9" text-anchor="middle">0xFFE4_0000 Instruction Buffer</text>
+ <rect x="230" y="228" width="160" height="22" fill="#f5f5f5" stroke="#999"/><text x="310" y="243" font-size="9" text-anchor="middle">0xFFEF_0000 Tensix Config</text>
+</svg>
+</div>
+
+<!-- 9-6 DENNO対比 -->
+<h3 id="fw-compare">9-6. 自作アクセラレータ(DENNO)との対比</h3>
+<p>Tensixの設計判断を理解した上で、<b>自分の設計ではどうするか</b>を考える。</p>
+<table>
+ <tr><th>設計判断</th><th>Tensix</th><th>自作 DENNO</th><th>考察</th></tr>
+ <tr><td>制御と演算の分離</td><td>5 RISC-Vは命令を撃つだけ。データはUnpacker/Packerが直接L1を叩く</td><td>CPU(RV32IM)がCSRでキック、systolic arrayが自律実行</td><td>同じ思想。制御プレーンをデータパスから分離するのがアクセラレータの基本</td></tr>
+ <tr><td>データ移動と演算の並行</td><td>NCRISC(DMA)とTRISC(compute)が独立に走る。CBで同期</td><td>DMA+ダブルバッファ+演算を重ねる設計</td><td>本質は同じ。Tensixは5コアで実現、DENNOはFSM+DMAで実現</td></tr>
+ <tr><td>同期方式</td><td>ポーリング(busy-wait)。割込みなし</td><td>APLIC割込みで完了通知</td><td>Tensixはコア間数十nsなのでポーリングが合理的。DENNOはバス越しなので割込みが合理的</td></tr>
+ <tr><td>命令メモリ分離</td><td>NCRISCだけ独自IRAM</td><td>未検討</td><td>DMA制御にIRAM分離は有効。自作でもDMA FSMの制御ROMを分離する価値あり</td></tr>
+ <tr><td>タイル単位</td><td>32×32固定。Unpacker/Packerが変換</td><td>4×4アレイ(parameter可変)</td><td>固定タイルはHW簡素化に有利。<b>自作では最初は固定が現実的</b></td></tr>
+ <tr><td>精度制御</td><td>Math Fidelity(1-4 phases)</td><td>INT8固定(量子化前提)</td><td>Tensixは汎用、DENNOはINT8推論特化。<b>用途が絞れるなら特化が正しい</b></td></tr>
+</table>
+
 <h2>出典</h2>
 <p class="src">
  ・<a href="https://docs.tenstorrent.com/tt-metal/latest/tt-metalium/tt_metal/advanced_topics/compute_engines_and_dataflow_within_tensix.html">Compute Engines and Data Flow within Tensix — TT-Metalium docs</a><br>
  ・<a href="https://github.com/tenstorrent/tt-llk/blob/main/docs/llk/l2/top_level_overview.md">Getting started with Tensix Core and Low-level Kernels — tt-llk</a><br>
  ・<a href="https://github.com/tenstorrent/tt-metal/blob/main/METALIUM_GUIDE.md">tt-metal METALIUM_GUIDE.md</a><br>
  ・<a href="https://anuraagw.me/blog/blackhole-architecture">Tenstorrent Blackhole architecture guide (anuraagw.me)</a><br>
- ・<a href="https://speakerdeck.com/tenstorrent_japan/tensix-core-akitekutiyajie-shuo">Tensix Core アーキテクチャ解説 — Tenstorrent Japan</a>
+ ・<a href="https://speakerdeck.com/tenstorrent_japan/tensix-core-akitekutiyajie-shuo">Tensix Core アーキテクチャ解説 — Tenstorrent Japan</a><br>
+ ・tt-metal ソースコード直接読解 (2026-07): <code>hw/firmware/src/tt-1xx/brisc.cc</code>, <code>ncrisc.cc</code>, <code>trisc.cc</code>, <code>dev_mem_map.h</code>, <code>core_config.h</code>, <code>dev_msgs.h</code>, <code>cq_dispatch.cpp</code>, <code>eltwise_binary.cpp</code>, <code>minimal_matmul_program_factory.cpp</code>
 </p>
 <p class="src">MANABI 目次に戻る → <a href="../README.md">README</a> / 関連: <a href="../ai-accelerator/ai_accel.html">AIアクセラレータ ロードマップ</a>・<a href="../systolic-array/systolic_array.html">シストリックアレイ</a></p>
 
