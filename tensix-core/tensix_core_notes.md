@@ -36,8 +36,8 @@ RISC-V は計算せず **命令を撃つだけ**。データ本体は RISC-V を
 
 | コア | 別名 | 役割 |
 |---|---|---|
-| **BRISC** | Data Movement 0 | NoC経由のデータ移動・ボード設定。主に**書き出し**側 |
-| **NCRISC** | Data Movement 1 | NoC経由のデータ移動。主に**読み込み**側 |
+| **BRISC** | Data Movement 0 (RISCV_0) | **Reader** — DRAM/L1→CBへ読み込み(NOC0) + マスター制御(他コアへGO/DONE管理) |
+| **NCRISC** | Data Movement 1 (RISCV_1) | **Writer** — CB→DRAM/L1へ書き出し(NOC1) + CB設定ロード補助 |
 | **TRISC0** | UNPACK | 2つの Unpacker を制御 |
 | **TRISC1** | MATH | FPU・SFPU へ演算命令を発行 |
 | **TRISC2** | PACK | Packer を制御 |
