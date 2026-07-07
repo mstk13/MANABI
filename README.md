@@ -45,6 +45,12 @@
 | AIアクセラレータ開発ロードマップ — AIの中身→設計手法→事例→学習プログラム | [notes](ai-accelerator/ai_accel_notes.md) | [図解+ロードマップ](https://mstk13.github.io/MANABI/ai-accelerator/ai_accel.html) |
 | シストリックアレイ(weight-stationary) — 活性→・部分和↓を流しながら積和。3x3アニメ | [notes](systolic-array/systolic_array_notes.md) | [図解(再生可)](https://mstk13.github.io/MANABI/systolic-array/systolic_array.html) |
 
+### RISC-V + LLVM バックエンド自作
+
+| トピック | ノート | 図(ブラウザ) |
+|---|---|---|
+| LLVM バックエンド自作 — 読む前に押さえる前提知識(IR/SSA/TableGen/DAG/ELF/テスト, 全8章対応) | [notes](llvm-backend-prep/prep_notes.md) | — |
+
 ### CPU・ISA・パイプライン
 
 | トピック | ノート | 図(ブラウザ) |
