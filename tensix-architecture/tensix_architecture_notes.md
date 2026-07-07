@@ -286,6 +286,60 @@ Math Fidelity で精度とスループットのトレードオフ:
 
 ---
 
+## 8. 自作 DENNO アクセラレータとの構造対比
+
+Tensix と自作 DENNO Accel は**同じ問題（LLM の GEMM）を解く**が、
+アーキテクチャの層が大きく異なる。以下に対比を整理する。
+
+```
+          Tensix (Tenstorrent)                 DENNO (自作)
+  ┌──────────────────────────────┐    ┌──────────────────────────────┐
+  │ 5x RISC-V                   │    │ 1x RISC-V (RV32IM)          │
+  │ ├ BRISC  : DM読込(NOC0)     │    │ └ 制御 + ディスパッチ全般    │
+  │ ├ NCRISC : DM書出(NOC1)     │    │                              │
+  │ ├ TRISC0 : Unpack           │    ├──────────────────────────────┤
+  │ ├ TRISC1 : Math(FPU/SFPU)   │    │ 4×4 Systolic Array          │
+  │ └ TRISC2 : Pack             │    │ (output-stationary)          │
+  ├──────────────────────────────┤    │ INT8×INT8→INT32 MAC         │
+  │ FPU: 8×16 · 16×16 /cyc      │    │ 16 MAC /タイル               │
+  │ SFPU: sigmoid,exp,rsqrt...  │    │ (将来: Vector/SFU 追加)      │
+  ├──────────────────────────────┤    ├──────────────────────────────┤
+  │ L1 SRAM (1.5MB) + CB        │    │ Scratchpad SRAM + DMA       │
+  │ NOC (2本, mesh)             │    │ AXI (ホストCPU直結)          │
+  │ DRAM (8ch HBM/DDR)          │    │ 外部 DDR (1ch)               │
+  └──────────────────────────────┘    └──────────────────────────────┘
+```
+
+### 対比表
+
+| 観点 | Tensix | DENNO Accel | 意味 |
+|------|--------|------------|------|
+| **CPU コア数** | 5 (役割分離) | 1 (全兼任) | Tensix は DM と計算を HW で完全分離。DENNO は CPU が全制御 |
+| **データ供給** | 2本の NoC + CB で自動パイプライン | CPU が DMA をキック | Tensix は BRISC/NCRISC が並列に読書き。DENNO は CPU がボトルネックになりうる |
+| **同期** | HW カウンタ (CB rd/wr ptr) | MMIO CSR ポーリング or 割込み | Tensix はプロデューサ-コンシューマが HW 暗黙同期 |
+| **演算器** | FPU (8×16·16×16) + SFPU | 4×4 systolic MAC (将来拡張) | Tensix は 1 コアで 4096 MAC/cyc。DENNO は 16 MAC/cyc |
+| **タイルサイズ** | 固定 32×32 | 4×4 (将来 16×16) | Tensix のタイルが大きいのは FPU のパイプに合わせた設計 |
+| **精度制御** | Math Fidelity (LoFi〜HiFi4) | INT8 固定 (将来 INT4/bf16) | Tensix はパス数で精度-速度トレードオフ |
+| **スケール** | チップ上 100+ コアが NoC mesh | 単体 (将来 NoC 検討) | Tensix は空間的にスケール。DENNO はまず 1 コアを完成 |
+
+### 設計思想の共通点
+
+1. **GEMM が主役** — 両方とも LLM 推論の 8〜9 割を占める行列積を高速化する専用 HW
+2. **タイリング** — 大きな行列を小タイルに分割してオンチップメモリに載せて計算
+3. **ダブルバッファ** — 計算とデータ転送のオーバーラップ (Tensix は CB、DENNO はスクラッチパッド)
+4. **量子化** — メモリ帯域が decode を律速するため INT8/INT4 で帯域を稼ぐ
+
+### DENNO で学べないが Tensix で重要なこと
+
+- **NoC mesh**: 100+ コア間のデータ移動。アービトレーション、デッドロック回避、VC
+- **マルチコア並列**: 同じ op を複数 Tensix に分配する Program のタイル割り当て
+- **compute kernel の 3 バイナリ分離**: 1 ソース → UNPACK/MATH/PACK の 3 コンパイル
+
+→ これらは **ADIP で実機を触って初めて深く理解できる領域**。
+  自作 DENNO では「1 コアの中の構造」を体得することに集中する。
+
+---
+
 ## 関連ノート
 
 - [Tensix コア概要（ブロック図）](../tensix-core/tensix_core_notes.md) — 各ブロックの概要と起動フロー
