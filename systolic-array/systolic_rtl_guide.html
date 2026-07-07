@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Systolic Array RTL 実装ガイド — 設計思想とコード解説</title>
+<style>
+  :root{
+    --bg:#0f1420; --card:#171d2b; --ink:#e6ebf5; --sub:#9fb0c8;
+    --pe:#202a3d; --peb:#33415c; --w:#7ea8ff; --act:#37d67a; --ps:#ffaf45; --out:#ff6b8b;
+    --grid:#2a3550; --kw:#c792ea; --fn:#82aaff; --cm:#546e7a; --str:#c3e88d; --num:#f78c6c;
+    --tp:#ffcb6b; --sig:#89ddff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font-family:-apple-system,"Segoe UI",Roboto,"Hiragino Kaku Gothic ProN",Meiryo,sans-serif;
+    line-height:1.7;padding:24px}
+  .wrap{max-width:960px;margin:0 auto}
+  h1{font-size:22px;margin:0 0 4px;color:#fff}
+  h2{font-size:18px;margin:32px 0 8px;color:var(--act);border-bottom:1px solid #222c41;padding-bottom:6px}
+  h3{font-size:15px;margin:20px 0 6px;color:var(--w)}
+  .lead{color:var(--sub);font-size:14px;margin:0 0 20px}
+  .card{background:var(--card);border:1px solid #222c41;border-radius:14px;padding:20px 22px;margin:14px 0}
+  .note{background:#1a2235;border-left:3px solid var(--ps);border-radius:0 8px 8px 0;padding:10px 14px;
+    font-size:13.5px;color:#cdd9ef;margin:10px 0}
+  .note b{color:var(--ps)}
+  .warn{border-left-color:var(--out)}
+  .warn b{color:var(--out)}
+
+  /* code blocks */
+  pre{background:#0c111c;border:1px solid #1e2a3e;border-radius:10px;padding:14px 16px;
+    overflow-x:auto;font-size:13px;line-height:1.55;margin:8px 0 12px}
+  code{font-family:'Fira Code',ui-monospace,Menlo,Consolas,monospace}
+  .kw{color:var(--kw)} .fn{color:var(--fn)} .cm{color:var(--cm);font-style:italic}
+  .str{color:var(--str)} .num{color:var(--num)} .tp{color:var(--tp)} .sig{color:var(--sig)}
+  .line{color:#3a4a66;user-select:none;display:inline-block;width:28px;text-align:right;margin-right:12px}
+
+  /* diagram */
+  .diag{background:#0c111c;border:1px solid #1e2a3e;border-radius:10px;padding:16px;
+    font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px;line-height:1.5;
+    overflow-x:auto;color:#9fb0c8;white-space:pre}
+  .diag .hl-act{color:var(--act);font-weight:700}
+  .diag .hl-w{color:var(--w);font-weight:700}
+  .diag .hl-out{color:var(--out);font-weight:700}
+  .diag .hl-ps{color:var(--ps);font-weight:700}
+  .diag .hl-pe{color:#dfe8ff;font-weight:700}
+
+  /* table */
+  table{width:100%;border-collapse:collapse;font-size:13px;margin:8px 0}
+  td,th{border:1px solid var(--grid);padding:6px 10px}
+  th{color:var(--sub);font-weight:600;background:#151b28;text-align:left}
+
+  /* nav tabs */
+  .tabs{display:flex;gap:6px;margin:16px 0 0;flex-wrap:wrap}
+  .tab{background:var(--pe);color:var(--sub);border:1px solid var(--peb);border-radius:9px 9px 0 0;
+    padding:8px 16px;font-size:14px;cursor:pointer;border-bottom:none;font-weight:600}
+  .tab.active{background:var(--card);color:var(--ink);border-color:#222c41}
+  .tab:hover{color:var(--ink)}
+  .panel{display:none}
+  .panel.active{display:block}
+
+  .legend{display:flex;gap:16px;flex-wrap:wrap;font-size:12.5px;color:var(--sub);margin:8px 0}
+  .dot{display:inline-block;width:10px;height:10px;border-radius:3px;vertical-align:-1px;margin-right:4px}
+
+  /* interactive anim */
+  .anim-wrap{position:relative;margin:12px auto;max-width:600px}
+  canvas{display:block;margin:0 auto;border-radius:10px;background:#0c111c;border:1px solid #1e2a3e}
+  .anim-ctrl{display:flex;gap:10px;align-items:center;justify-content:center;margin:10px 0;flex-wrap:wrap}
+  button{background:var(--pe);color:var(--ink);border:1px solid var(--peb);border-radius:8px;
+    padding:7px 14px;font-size:13px;cursor:pointer}
+  button:hover{background:#27344c}
+  button.primary{background:#2b62d6;border-color:#3b72e6}
+  .cyc-disp{font-family:ui-monospace,monospace;font-size:14px;color:#cdd9ef;min-width:80px;text-align:center}
+  a{color:var(--w);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .toc{list-style:none;padding:0;margin:10px 0}
+  .toc li{margin:4px 0}
+  .toc a{color:var(--act);font-size:14px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Systolic Array RTL 実装ガイド</h1>
+<p class="lead">4つの SystemVerilog ファイルが何をしているか、設計思想からコードの行単位まで解説する。<br>
+対象: <code>mac.sv</code> → <code>pe.sv</code> → <code>skew_buffer.sv</code> → <code>systolic_4x4.sv</code></p>
+
+<div class="card">
+<h3>目次</h3>
+<ul class="toc">
+  <li><a href="#overview">0. 全体像 — 4ファイルの関係</a></li>
+  <li><a href="#mac">1. mac.sv — 積和ユニット (最小構成要素)</a></li>
+  <li><a href="#pe">2. pe.sv — Processing Element</a></li>
+  <li><a href="#skew">3. skew_buffer.sv — スキューバッファ</a></li>
+  <li><a href="#top">4. systolic_4x4.sv — 4×4 アレイ本体</a></li>
+  <li><a href="#why-os">5. なぜ output-stationary か</a></li>
+  <li><a href="#timing">6. タイミングアニメーション</a></li>
+</ul>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="overview">0. 全体像 — 4ファイルの関係</h2>
+<div class="card">
+<div class="diag"><span class="hl-pe">systolic_4x4.sv</span> (トップ)
+  │
+  ├─ <span class="hl-act">skew_buffer.sv</span> ×2  (活性化用 + 重み用)
+  │
+  └─ <span class="hl-pe">pe.sv</span> ×16  (4×4 グリッド)
+       │
+       └─ <span class="hl-w">mac.sv</span> ×1  (各PEに1個)</div>
+
+<p style="margin-top:12px">ファイル依存の方向: <b>mac → pe → (skew_buffer, systolic_4x4)</b>。
+下位モジュールほどシンプル。上位がそれを組み合わせて行列積を実現する。</p>
+
+<table>
+<tr><th>ファイル</th><th>行数</th><th>役割</th><th>設計の問い</th></tr>
+<tr><td><code>mac.sv</code></td><td>28行</td><td>a × b を累算</td><td>「1回の積和」をどう表現するか</td></tr>
+<tr><td><code>pe.sv</code></td><td>50行</td><td>MAC + データ伝搬</td><td>「隣の PE にデータをどう渡すか」</td></tr>
+<tr><td><code>skew_buffer.sv</code></td><td>42行</td><td>対角遅延</td><td>「なぜ斜めにずらすのか」</td></tr>
+<tr><td><code>systolic_4x4.sv</code></td><td>90行</td><td>全体統合</td><td>「重みをどう PE に届けるか」</td></tr>
+</table>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="mac">1. mac.sv — 積和ユニット</h2>
+<div class="card">
+<h3>設計思想</h3>
+<p>行列積の最小単位は <b>「掛けて足す」= MAC (Multiply-ACcumulate)</b>。<br>
+これ 1 個で「1 サイクルに 1 回の積和」ができる。16 個並べれば 16 MAC/サイクル。</p>
+
+<div class="diag">
+       a (INT8)
+       │
+       ▼
+   ┌───────┐
+   │  ×    │───▶ prod (INT16: 符号付き乗算)
+   └───────┘
+       ▲              │
+       │              ▼
+   b (INT8)      ┌─────────┐     ┌─────────┐
+                 │   +     │◀────│  acc     │──▶ 出力 (INT32)
+                 └─────────┘     │ (レジスタ)│
+                      ▲         └─────────┘
+                      │              ▲
+                   clear?──── 0 ─────┘
+                   (clear=1 なら acc の代わりに 0 を使う)
+</div>
+
+<h3>コード全文と解説</h3>
+<pre><code><span class="line"> 1</span><span class="kw">module</span> <span class="fn">mac</span> #(
+<span class="line"> 2</span>    <span class="kw">parameter int</span> <span class="tp">A_W</span>   = <span class="num">8</span>,    <span class="cm">// 入力 a の幅 (INT8 = 8bit 符号付き)</span>
+<span class="line"> 3</span>    <span class="kw">parameter int</span> <span class="tp">B_W</span>   = <span class="num">8</span>,    <span class="cm">// 入力 b の幅</span>
+<span class="line"> 4</span>    <span class="kw">parameter int</span> <span class="tp">ACC_W</span> = <span class="num">32</span>    <span class="cm">// 累算器の幅 (INT32)</span>
+<span class="line"> 5</span>)(
+<span class="line"> 6</span>    <span class="kw">input</span>  <span class="tp">logic</span>                     clk,
+<span class="line"> 7</span>    <span class="kw">input</span>  <span class="tp">logic</span>                     rst_n,   <span class="cm">// 非同期リセット (Low active)</span>
+<span class="line"> 8</span>    <span class="kw">input</span>  <span class="tp">logic</span>                     en,      <span class="cm">// 1 のサイクルだけ積和実行</span>
+<span class="line"> 9</span>    <span class="kw">input</span>  <span class="tp">logic</span>                     clear,   <span class="cm">// 1 なら acc を 0 にしてから加算</span>
+<span class="line">10</span>    <span class="kw">input</span>  <span class="tp">logic signed</span> [A_W-1:0]    a,
+<span class="line">11</span>    <span class="kw">input</span>  <span class="tp">logic signed</span> [B_W-1:0]    b,
+<span class="line">12</span>    <span class="kw">output</span> <span class="tp">logic signed</span> [ACC_W-1:0]  acc
+<span class="line">13</span>);
+<span class="line">14</span>    <span class="cm">// 符号付き乗算 → 積は A_W + B_W ビット幅</span>
+<span class="line">15</span>    <span class="tp">logic signed</span> [A_W+B_W-1:0] prod;
+<span class="line">16</span>    <span class="kw">assign</span> prod = a * b;          <span class="cm">// 組合せ回路 (1サイクルで乗算)</span>
+<span class="line">17</span>
+<span class="line">18</span>    <span class="kw">always_ff</span> @(<span class="kw">posedge</span> clk <span class="kw">or negedge</span> rst_n) <span class="kw">begin</span>
+<span class="line">19</span>        <span class="kw">if</span> (!rst_n)
+<span class="line">20</span>            acc &lt;= <span class="num">'0</span>;        <span class="cm">// リセット時は 0</span>
+<span class="line">21</span>        <span class="kw">else if</span> (en)
+<span class="line">22</span>            acc &lt;= (clear ? <span class="num">'0</span> : acc) + ACC_W'(prod);
+<span class="line">23</span>    <span class="kw">end</span>                           <span class="cm">// ↑ prod を ACC_W ビットに符号拡張して加算</span>
+<span class="line">24</span><span class="kw">endmodule</span></code></pre>
+
+<div class="note">
+<b>ポイント:</b> 22行目の <code>(clear ? '0 : acc)</code> がミソ。
+clear=1 なら前の累算値を捨てて 0 + prod、clear=0 なら acc + prod。
+これで「新しい計算の開始」と「累積の継続」を 1 行で切り替える。
+</div>
+
+<table>
+<tr><th>信号</th><th>方向</th><th>意味</th></tr>
+<tr><td><code>en</code></td><td>入力</td><td>1 のサイクルだけ積和実行。0 なら acc は前の値を保持</td></tr>
+<tr><td><code>clear</code></td><td>入力</td><td>新しい行列積の最初のサイクルで 1 にする (累算器リセット)</td></tr>
+<tr><td><code>prod</code></td><td>内部</td><td>a × b の結果。INT8 × INT8 = 16bit 符号付き</td></tr>
+<tr><td><code>acc</code></td><td>出力</td><td>累算結果。INT32 なのでオーバフローの心配なし</td></tr>
+</table>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="pe">2. pe.sv — Processing Element</h2>
+<div class="card">
+<h3>設計思想</h3>
+<p>MAC だけでは「計算するだけ」。PE はそれに加えて <b>隣の PE にデータを渡す</b> 責務を持つ。</p>
+<ul>
+<li><b>活性化 (act)</b>: 左から入って、右隣へ 1 サイクル遅延で渡す</li>
+<li><b>重み (w)</b>: 上から入って、下隣へ 1 サイクル遅延で渡す</li>
+<li><b>結果 (acc)</b>: この PE の中に留まる (= <b>output-stationary</b>)</li>
+</ul>
+
+<div class="diag">
+                   <span class="hl-w">w_in</span> (上から)
+                    │
+                    ▼
+  <span class="hl-act">act_in</span> ──────┬───▶ <span class="hl-pe">MAC</span> ──▶ <span class="hl-out">acc</span> (結果: この PE に蓄積)
+  (左から)     │     │  ▲
+               │     │  │
+               │     │ <span class="hl-w">w_in</span>
+               │     │
+          [1clk reg] [1clk reg]
+               │        │
+               ▼        ▼
+          <span class="hl-act">act_out</span>   <span class="hl-w">w_out</span>
+          (右隣へ)   (下隣へ)
+
+  <span class="hl-pe">重要:</span> MAC は act_in と w_in を<b>直接</b>使う (遅延前の値)。
+       act_out と w_out は<b>1サイクル後</b>の値 (隣の PE 用)。</div>
+
+<h3>コード全文と解説</h3>
+<pre><code><span class="line"> 1</span><span class="kw">module</span> <span class="fn">pe</span> #(
+<span class="line"> 2</span>    <span class="kw">parameter int</span> <span class="tp">DW</span>    = <span class="num">8</span>,     <span class="cm">// データ幅 (INT8)</span>
+<span class="line"> 3</span>    <span class="kw">parameter int</span> <span class="tp">ACC_W</span> = <span class="num">32</span>     <span class="cm">// 累算器幅 (INT32)</span>
+<span class="line"> 4</span>)(
+<span class="line"> 5</span>    <span class="kw">input</span>  <span class="tp">logic</span>                     clk, rst_n,
+<span class="line"> 6</span>    <span class="kw">input</span>  <span class="tp">logic</span>                     compute_en, acc_clear,
+<span class="line"> 7</span>    <span class="cm">// 活性化 (左→右)</span>
+<span class="line"> 8</span>    <span class="kw">input</span>  <span class="tp">logic signed</span> [DW-1:0]     act_in,
+<span class="line"> 9</span>    <span class="kw">output</span> <span class="tp">logic signed</span> [DW-1:0]     act_out,
+<span class="line">10</span>    <span class="cm">// 重み (上→下)</span>
+<span class="line">11</span>    <span class="kw">input</span>  <span class="tp">logic signed</span> [DW-1:0]     w_in,
+<span class="line">12</span>    <span class="kw">output</span> <span class="tp">logic signed</span> [DW-1:0]     w_out,
+<span class="line">13</span>    <span class="cm">// 累算結果</span>
+<span class="line">14</span>    <span class="kw">output</span> <span class="tp">logic signed</span> [ACC_W-1:0]  acc
+<span class="line">15</span>);
+<span class="line">16</span>    <span class="cm">// ── パススルーレジスタ ──</span>
+<span class="line">17</span>    <span class="cm">// データを「次のサイクルで隣へ渡す」ための 1段レジスタ。</span>
+<span class="line">18</span>    <span class="cm">// これが systolic (心拍的) な 1clk 遅延の正体。</span>
+<span class="line">19</span>    <span class="kw">always_ff</span> @(<span class="kw">posedge</span> clk <span class="kw">or negedge</span> rst_n) <span class="kw">begin</span>
+<span class="line">20</span>        <span class="kw">if</span> (!rst_n) <span class="kw">begin</span>
+<span class="line">21</span>            act_out &lt;= <span class="num">'0</span>;
+<span class="line">22</span>            w_out   &lt;= <span class="num">'0</span>;
+<span class="line">23</span>        <span class="kw">end else begin</span>
+<span class="line">24</span>            act_out &lt;= act_in;   <span class="cm">// 今の入力を次のサイクルで右へ</span>
+<span class="line">25</span>            w_out   &lt;= w_in;     <span class="cm">// 今の入力を次のサイクルで下へ</span>
+<span class="line">26</span>        <span class="kw">end</span>
+<span class="line">27</span>    <span class="kw">end</span>
+<span class="line">28</span>
+<span class="line">29</span>    <span class="cm">// ── MAC インスタンス ──</span>
+<span class="line">30</span>    <span class="cm">// act_in × w_in を毎サイクル累算。</span>
+<span class="line">31</span>    <span class="cm">// MAC の a = act_in (遅延前)、b = w_in (遅延前) を直接接続。</span>
+<span class="line">32</span>    <span class="fn">mac</span> #(.<span class="tp">A_W</span>(DW), .<span class="tp">B_W</span>(DW), .<span class="tp">ACC_W</span>(ACC_W)) u_mac (
+<span class="line">33</span>        .clk(clk), .rst_n(rst_n),
+<span class="line">34</span>        .en(compute_en), .clear(acc_clear),
+<span class="line">35</span>        .a(act_in),  .b(w_in),  .acc(acc)
+<span class="line">36</span>    );
+<span class="line">37</span><span class="kw">endmodule</span></code></pre>
+
+<div class="note">
+<b>なぜ act_in を直接 MAC に繋ぐか:</b>
+act_out は act_in の 1 サイクル遅延コピー。MAC が act_out を使うと
+「1 サイクル前のデータ」で計算してしまい、タイミングがずれる。
+<b>同じサイクルの act_in と w_in</b> で掛けることで、
+スキューバッファが作った「同時到着」が正しく反映される。
+</div>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="skew">3. skew_buffer.sv — スキューバッファ</h2>
+<div class="card">
+<h3>設計思想</h3>
+<p>シストリックアレイでは、全データを同時に投入すると PE(0,0) だけが正しいタイミングで受け取り、
+他の PE はずれる。<b>事前にずらして投入する</b>ことで、各 PE に正しいペアが同時到着する。</p>
+
+<div class="diag">入力 data_in[0..3] に毎サイクル新しいデータが来る。
+スキューバッファが各行を<span class="hl-ps">ずらして</span>出力する:
+
+<span class="hl-act">data_in[0]</span> ─────────────────────▶ <span class="hl-act">data_out[0]</span>   遅延 <span class="hl-ps">0</span> (パススルー)
+
+<span class="hl-act">data_in[1]</span> ──▶ [<span class="hl-w">SR</span>] ─────────────▶ <span class="hl-act">data_out[1]</span>   遅延 <span class="hl-ps">1</span>
+
+<span class="hl-act">data_in[2]</span> ──▶ [<span class="hl-w">SR</span>]──▶[<span class="hl-w">SR</span>] ──────▶ <span class="hl-act">data_out[2]</span>   遅延 <span class="hl-ps">2</span>
+
+<span class="hl-act">data_in[3]</span> ──▶ [<span class="hl-w">SR</span>]──▶[<span class="hl-w">SR</span>]──▶[<span class="hl-w">SR</span>]▶ <span class="hl-act">data_out[3]</span>   遅延 <span class="hl-ps">3</span>
+
+<span class="hl-w">SR</span> = シフトレジスタ (1サイクル遅延の FF)</div>
+
+<h3>なぜずらすのか — 具体例</h3>
+<p>4×4 の行列積 C = A × W を計算するとき:</p>
+<ul>
+<li><b>活性化スキュー</b>: 行 0 は遅延 0、行 1 は遅延 1、…行 3 は遅延 3</li>
+<li><b>重みスキュー</b>: 列 0 は遅延 0、列 1 は遅延 1、…列 3 は遅延 3</li>
+</ul>
+<p>こうすると PE(r,c) に A[r][k] と W[k][c] が<b>同じサイクル T = k + r + c</b> で到着する。</p>
+
+<div class="diag">例: サイクル T=0 に投入するデータ
+
+活性化 (行スキュー後):          重み (列スキュー後):
+  行0: A[0][0] ← 遅延0で即到着    列0: W[0][0] ← 遅延0で即到着
+  行1: (まだ)  ← 遅延1で次サイクル  列1: (まだ)  ← 遅延1で次サイクル
+  行2: (まだ)  ← 遅延2             列2: (まだ)  ← 遅延2
+  行3: (まだ)  ← 遅延3             列3: (まだ)  ← 遅延3
+
+→ T=0 では PE(0,0) だけが有効データを受け取る。
+  T=1 では PE(0,1) と PE(1,0) が受け取る。
+  … 対角線上に波紋が広がるように計算が進む。</div>
+
+<h3>コード全文と解説</h3>
+<pre><code><span class="line"> 1</span><span class="kw">module</span> <span class="fn">skew_buffer</span> #(
+<span class="line"> 2</span>    <span class="kw">parameter int</span> <span class="tp">N</span>  = <span class="num">4</span>,    <span class="cm">// 行(列)数</span>
+<span class="line"> 3</span>    <span class="kw">parameter int</span> <span class="tp">DW</span> = <span class="num">8</span>     <span class="cm">// データ幅</span>
+<span class="line"> 4</span>)(
+<span class="line"> 5</span>    <span class="kw">input</span>  <span class="tp">logic</span>                    clk, rst_n,
+<span class="line"> 6</span>    <span class="kw">input</span>  <span class="tp">logic signed</span> [DW-1:0]   data_in  [N],
+<span class="line"> 7</span>    <span class="kw">output</span> <span class="tp">logic signed</span> [DW-1:0]   data_out [N]
+<span class="line"> 8</span>);
+<span class="line"> 9</span>    <span class="cm">// ── 行0: 遅延0 (そのまま通す) ──</span>
+<span class="line">10</span>    <span class="kw">assign</span> data_out[<span class="num">0</span>] = data_in[<span class="num">0</span>];
+<span class="line">11</span>
+<span class="line">12</span>    <span class="cm">// ── 行1: 遅延1 (FF 1段) ──</span>
+<span class="line">13</span>    <span class="tp">logic signed</span> [DW-1:0] sr1;
+<span class="line">14</span>    <span class="kw">always_ff</span> @(<span class="kw">posedge</span> clk <span class="kw">or negedge</span> rst_n) <span class="kw">begin</span>
+<span class="line">15</span>        <span class="kw">if</span> (!rst_n) sr1 &lt;= <span class="num">'0</span>;
+<span class="line">16</span>        <span class="kw">else</span>        sr1 &lt;= data_in[<span class="num">1</span>];
+<span class="line">17</span>    <span class="kw">end</span>
+<span class="line">18</span>    <span class="kw">assign</span> data_out[<span class="num">1</span>] = sr1;
+<span class="line">19</span>
+<span class="line">20</span>    <span class="cm">// ── 行2: 遅延2 (FF 2段) ──</span>
+<span class="line">21</span>    <span class="tp">logic signed</span> [DW-1:0] sr2 [<span class="num">2</span>];
+<span class="line">22</span>    <span class="kw">always_ff</span> @(<span class="kw">posedge</span> clk <span class="kw">or negedge</span> rst_n) <span class="kw">begin</span>
+<span class="line">23</span>        <span class="kw">if</span> (!rst_n) <span class="kw">begin</span>
+<span class="line">24</span>            sr2[<span class="num">0</span>] &lt;= <span class="num">'0</span>;  sr2[<span class="num">1</span>] &lt;= <span class="num">'0</span>;
+<span class="line">25</span>        <span class="kw">end else begin</span>
+<span class="line">26</span>            sr2[<span class="num">0</span>] &lt;= data_in[<span class="num">2</span>];   <span class="cm">// 入力 → 1段目</span>
+<span class="line">27</span>            sr2[<span class="num">1</span>] &lt;= sr2[<span class="num">0</span>];       <span class="cm">// 1段目 → 2段目(出力)</span>
+<span class="line">28</span>        <span class="kw">end</span>
+<span class="line">29</span>    <span class="kw">end</span>
+<span class="line">30</span>    <span class="kw">assign</span> data_out[<span class="num">2</span>] = sr2[<span class="num">1</span>];
+<span class="line">31</span>
+<span class="line">32</span>    <span class="cm">// ── 行3: 遅延3 (FF 3段) ──</span>
+<span class="line">33</span>    <span class="tp">logic signed</span> [DW-1:0] sr3 [<span class="num">3</span>];
+<span class="line">34</span>    <span class="kw">always_ff</span> @(<span class="kw">posedge</span> clk <span class="kw">or negedge</span> rst_n) <span class="kw">begin</span>
+<span class="line">35</span>        <span class="kw">if</span> (!rst_n) <span class="kw">begin</span>
+<span class="line">36</span>            sr3[<span class="num">0</span>] &lt;= <span class="num">'0</span>;  sr3[<span class="num">1</span>] &lt;= <span class="num">'0</span>;  sr3[<span class="num">2</span>] &lt;= <span class="num">'0</span>;
+<span class="line">37</span>        <span class="kw">end else begin</span>
+<span class="line">38</span>            sr3[<span class="num">0</span>] &lt;= data_in[<span class="num">3</span>];   <span class="cm">// 入力 → 1段目</span>
+<span class="line">39</span>            sr3[<span class="num">1</span>] &lt;= sr3[<span class="num">0</span>];       <span class="cm">// 1段目 → 2段目</span>
+<span class="line">40</span>            sr3[<span class="num">2</span>] &lt;= sr3[<span class="num">1</span>];       <span class="cm">// 2段目 → 3段目(出力)</span>
+<span class="line">41</span>        <span class="kw">end</span>
+<span class="line">42</span>    <span class="kw">end</span>
+<span class="line">43</span>    <span class="kw">assign</span> data_out[<span class="num">3</span>] = sr3[<span class="num">2</span>];
+<span class="line">44</span><span class="kw">endmodule</span></code></pre>
+
+<div class="note">
+<b>シフトレジスタの直感:</b>
+sr3 の 3 段は「バケツリレー」。毎サイクル中身が 1 段ずつ移動する。
+入力されたデータは 3 サイクル後にようやく出力に現れる。
+</div>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="top">4. systolic_4x4.sv — アレイ本体</h2>
+<div class="card">
+<h3>設計思想</h3>
+<p>このモジュールが解決する問題は 3 つ:</p>
+<ol>
+<li><b>重みの保管と供給</b> — 重みバッファに事前格納し、計算時に 1 行/サイクルでストリーム</li>
+<li><b>スキューの生成</b> — 活性化 (行) と 重み (列) の両方にスキューバッファを配置</li>
+<li><b>PE の接続</b> — 4×4 グリッドで横と縦のワイヤを正しく配線</li>
+</ol>
+
+<div class="diag">
+              ┌────────────────────────────────────────────┐
+              │         <span class="hl-pe">systolic_4x4</span> の内部構造             │
+              │                                            │
+              │  ┌──────────────┐    ┌──────────────┐      │
+              │  │ <span class="hl-w">w_buf[4][4]</span>  │    │ <span class="hl-ps">w_cnt</span>        │      │
+              │  │ 重みバッファ  │───▶│ ストリーム    │      │
+              │  │ (weight_load │    │ カウンタ      │      │
+              │  │  で事前格納) │    │ (0→1→2→3→停止)│      │
+              │  └──────────────┘    └──────┬───────┘      │
+              │                            │ w_stream[c]   │
+              │                            ▼               │
+              │                   ┌──────────────┐         │
+  act_in[r] ──┤──▶ ┌───────────┐  │ <span class="hl-w">列スキュー</span>    │         │
+              │    │ <span class="hl-act">行スキュー</span> │  │ col c を     │         │
+              │    │ row r を  │  │ c cyc 遅延   │         │
+              │    │ r cyc 遅延│  └──────┬───────┘         │
+              │    └─────┬─────┘         │ w_skewed[c]     │
+              │          │ act_skewed[r]  │                 │
+              │          ▼               ▼                 │
+              │    ┌─────────────────────────────┐         │
+              │    │  <span class="hl-pe">4×4 PE グリッド</span>              │         │
+              │    │  act: 左→右  w: 上→下       │         │
+              │    │  result[r][c] = PE(r,c).acc  │         │
+              │    └─────────────────────────────┘         │
+              └────────────────────────────────────────────┘</div>
+
+<h3>コードの重要部分 — 3つのブロック</h3>
+
+<h3>① 重みバッファと重みストリーミング</h3>
+<pre><code><span class="cm">// ── 重みバッファ: weight_load で1要素ずつ書き込み ──</span>
+<span class="tp">logic signed</span> [DW-1:0] w_buf [N][N];
+<span class="kw">always_ff</span> @(<span class="kw">posedge</span> clk) <span class="kw">begin</span>
+    <span class="kw">if</span> (weight_load)
+        w_buf[weight_row][weight_col] &lt;= weight_data;
+<span class="kw">end</span>
+
+<span class="cm">// ── ストリームカウンタ: 計算中に 0→1→2→3 と進み、1行/cyc 出力 ──</span>
+<span class="tp">logic</span> [$clog2(N+1)-1:0] w_cnt;
+<span class="kw">always_ff</span> @(<span class="kw">posedge</span> clk <span class="kw">or negedge</span> rst_n) <span class="kw">begin</span>
+    <span class="kw">if</span> (!rst_n)       w_cnt &lt;= <span class="num">'0</span>;
+    <span class="kw">else if</span> (acc_clear) w_cnt &lt;= <span class="num">'0</span>;           <span class="cm">// 新しい計算の開始</span>
+    <span class="kw">else if</span> (compute_en && w_cnt &lt; N)
+                      w_cnt &lt;= w_cnt + 1;   <span class="cm">// N行出したら停止</span>
+<span class="kw">end</span>
+
+<span class="cm">// ── w_stream: w_buf の w_cnt 行目を列ごとに出力 ──</span>
+<span class="kw">assign</span> w_stream[c] = (compute_en && !acc_clear && w_cnt &lt; N)
+                   ? w_buf[w_cnt][c] : <span class="num">'0</span>;</code></pre>
+
+<div class="note">
+<b>!acc_clear ガード:</b> acc_clear サイクルでは活性化が 0 なので積も 0 だが、
+重みストリームを止めておくことで列スキューバッファに余計な値が入るのを防ぐ。
+</div>
+
+<h3>② スキューバッファ ×2</h3>
+<pre><code><span class="cm">// 活性化: 行 r を r サイクル遅延</span>
+<span class="fn">skew_buffer</span> u_act_skew (.data_in(act_in),  .data_out(act_skewed));
+
+<span class="cm">// 重み: 列 c を c サイクル遅延</span>
+<span class="fn">skew_buffer</span> u_w_skew   (.data_in(w_stream), .data_out(w_skewed));</code></pre>
+
+<p>同じ <code>skew_buffer</code> モジュールを 2 回使う。
+活性化には「行スキュー」、重みには「列スキュー」として機能する。</p>
+
+<h3>③ PE グリッドの接続</h3>
+<pre><code><span class="cm">// 水平ワイヤ: act_h[r][0] = スキュー出力、act_h[r][c+1] = PE(r,c).act_out</span>
+<span class="tp">logic signed</span> [DW-1:0] act_h [N][N+1];
+<span class="cm">// 垂直ワイヤ: w_v[0][c] = スキュー出力、w_v[r+1][c] = PE(r,c).w_out</span>
+<span class="tp">logic signed</span> [DW-1:0] w_v   [N+1][N];
+
+<span class="kw">for</span> (c = 0; c &lt; N; c++)
+    <span class="kw">assign</span> w_v[<span class="num">0</span>][c] = w_skewed[c];     <span class="cm">// 列 c の上端に重みを注入</span>
+
+<span class="kw">for</span> (r = 0; r &lt; N; r++) <span class="kw">begin</span>
+    <span class="kw">assign</span> act_h[r][<span class="num">0</span>] = act_skewed[r]; <span class="cm">// 行 r の左端に活性化を注入</span>
+
+    <span class="kw">for</span> (c = 0; c &lt; N; c++) <span class="kw">begin</span>
+        <span class="fn">pe</span> u_pe (
+            .act_in  (act_h[r][c]),      <span class="cm">// ← 左から</span>
+            .act_out (act_h[r][c+1]),    <span class="cm">// → 右へ</span>
+            .w_in    (w_v[r][c]),        <span class="cm">// ↑ 上から</span>
+            .w_out   (w_v[r+1][c]),      <span class="cm">// ↓ 下へ</span>
+            .acc     (result[r][c])      <span class="cm">// ■ 結果</span>
+        );
+    <span class="kw">end</span>
+<span class="kw">end</span></code></pre>
+
+<div class="diag">配線の図解 (act_h と w_v):
+
+         w_v[0][0]  w_v[0][1]  w_v[0][2]  w_v[0][3]
+            │          │          │          │
+            ▼          ▼          ▼          ▼
+act_h ──▶<span class="hl-pe">[PE00]</span>──▶<span class="hl-pe">[PE01]</span>──▶<span class="hl-pe">[PE02]</span>──▶<span class="hl-pe">[PE03]</span>──▶ (未使用)
+[r=0]       │          │          │          │
+            ▼          ▼          ▼          ▼
+act_h ──▶<span class="hl-pe">[PE10]</span>──▶<span class="hl-pe">[PE11]</span>──▶<span class="hl-pe">[PE12]</span>──▶<span class="hl-pe">[PE13]</span>──▶
+[r=1]       │          │          │          │
+            ▼          ▼          ▼          ▼
+act_h ──▶<span class="hl-pe">[PE20]</span>──▶<span class="hl-pe">[PE21]</span>──▶<span class="hl-pe">[PE22]</span>──▶<span class="hl-pe">[PE23]</span>──▶
+[r=2]       │          │          │          │
+            ▼          ▼          ▼          ▼
+act_h ──▶<span class="hl-pe">[PE30]</span>──▶<span class="hl-pe">[PE31]</span>──▶<span class="hl-pe">[PE32]</span>──▶<span class="hl-pe">[PE33]</span>──▶
+[r=3]       │          │          │          │
+            ▼          ▼          ▼          ▼
+         (未使用)   (未使用)   (未使用)   (未使用)
+
+  <span class="hl-act">──▶</span> = act_h[r][c] → PE → act_h[r][c+1]  (水平)
+  <span class="hl-w"> │▼</span> = w_v[r][c]   → PE → w_v[r+1][c]    (垂直)</div>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="why-os">5. なぜ output-stationary か</h2>
+<div class="card">
+<h3>最初に試した weight-stationary (失敗した設計)</h3>
+<div class="diag">
+<span class="hl-out">❌ weight-stationary (横方向のみ):</span>
+  PE(r,c) に W[r][c] を固定。活性化 A[r][k] が横に流れる。
+
+  PE(r,c).acc = W[r][c] × (A[r][0] + A[r][1] + A[r][2] + A[r][3])
+              = W[r][c] × Σ_k A[r][k]
+
+  <span class="hl-out">これは行列積ではない！</span>
+  毎サイクル同じ重み W[r][c] で掛けているので、
+  K 個の積の「和」ではなく「同じ重みで K 回掛けた和」になる。</div>
+
+<h3>正しい行列積に必要なこと</h3>
+<div class="diag">
+<span class="hl-act">✓ 正しい行列積:</span>
+  C[r][c] = A[r][<span class="hl-ps">0</span>]×W[<span class="hl-ps">0</span>][c] + A[r][<span class="hl-ps">1</span>]×W[<span class="hl-ps">1</span>][c] + A[r][<span class="hl-ps">2</span>]×W[<span class="hl-ps">2</span>][c] + A[r][<span class="hl-ps">3</span>]×W[<span class="hl-ps">3</span>][c]
+
+  各項で <span class="hl-ps">k</span> が変わるごとに<span class="hl-w">異なる重み W[k][c]</span> が必要。
+  → 重みを固定(stationary)するのではなく、<span class="hl-w">毎サイクル流す</span>必要がある。</div>
+
+<h3>output-stationary の解決策</h3>
+<div class="diag">
+<span class="hl-pe">output-stationary:</span>
+  - <span class="hl-act">活性化</span>: 左→右に流れる (PE ごとに 1cyc 遅延)
+  - <span class="hl-w">重み</span>:   上→下に流れる (PE ごとに 1cyc 遅延)  ← <span class="hl-ps">これが追加</span>
+  - <span class="hl-out">結果</span>:   PE に留まる (= output が stationary)
+
+  PE(r,c) は毎サイクル<span class="hl-w">異なる重み</span>を受け取る:
+    T=k+r+c: act=A[r][k], w=W[k][c]  → 積 = A[r][k]×W[k][c]
+
+  K サイクルで K 個の異なる積が累算され:
+    acc = Σ_k A[r][k]×W[k][c] = <span class="hl-out">C[r][c]</span>  ✓</div>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="timing">6. タイミングアニメーション</h2>
+<div class="card">
+<p>各 PE がどのサイクルで何を計算するかを可視化。
+<b>k0〜k3</b> は A[r][k]×W[k][c] の k 番目の積和を表す。</p>
+
+<div class="anim-wrap">
+<canvas id="canvas" width="580" height="440"></canvas>
+<div class="anim-ctrl">
+  <button onclick="prevCyc()">◀ 前</button>
+  <span class="cyc-disp" id="cycDisp">T = 0</span>
+  <button onclick="nextCyc()">次 ▶</button>
+  <button class="primary" onclick="togglePlay()" id="playBtn">▶ 再生</button>
+</div>
+<div id="narr" style="background:#0c111c;border:1px solid #1e2a3e;border-radius:8px;padding:10px 13px;font-size:13px;color:#cfe0ff;min-height:20px;margin-top:6px"></div>
+</div>
+</div>
+
+</div><!-- .wrap -->
+
+<script>
+const N=4, K=4;
+const totalCyc = K + 2*(N-1); // 10 data cycles
+let cyc=0, playing=false, timer=null;
+
+const canvas=document.getElementById('canvas');
+const ctx=canvas.getContext('2d');
+const cycDisp=document.getElementById('cycDisp');
+const narr=document.getElementById('narr');
+
+const colors={bg:'#0c111c',pe:'#202a3d',peb:'#33415c',act:'#37d67a',w:'#7ea8ff',
+  out:'#ff6b8b',ps:'#ffaf45',ink:'#e6ebf5',sub:'#9fb0c8',active:'rgba(255,175,69,0.35)'};
+
+function getK(r,c,t){
+  const k=t-r-c;
+  return (k>=0 && k<K) ? k : -1;
+}
+
+function draw(){
+  const W=canvas.width, H=canvas.height;
+  ctx.fillStyle=colors.bg; ctx.fillRect(0,0,W,H);
+  const ox=100, oy=80, sz=90, gap=10, ps=sz+gap;
+
+  // Title
+  ctx.fillStyle=colors.sub; ctx.font='12px monospace';
+  ctx.fillText('w_skewed (列スキュー後)', ox+20, oy-50);
+  ctx.fillText('act_skewed', ox-90, oy+20);
+  ctx.fillText('(行スキュー後)', ox-95, oy+34);
+
+  // Column labels (weight arrows)
+  for(let c=0;c<N;c++){
+    const x=ox+c*ps+sz/2;
+    ctx.fillStyle=colors.w; ctx.font='bold 12px monospace';
+    ctx.textAlign='center';
+    const wk = cyc-c;
+    if(wk>=0 && wk<K){
+      ctx.fillText('W['+wk+']['+c+']', x, oy-18);
+      ctx.fillText('↓', x, oy-6);
+    } else {
+      ctx.fillStyle='#3a4a66';
+      ctx.fillText('—', x, oy-18);
+    }
+  }
+
+  // Row labels (act arrows)
+  ctx.textAlign='right';
+  for(let r=0;r<N;r++){
+    const y=oy+r*ps+sz/2;
+    ctx.fillStyle=colors.act; ctx.font='bold 12px monospace';
+    const ak = cyc-r;
+    if(ak>=0 && ak<K){
+      ctx.fillText('A['+r+']['+ak+'] →', ox-8, y+4);
+    } else {
+      ctx.fillStyle='#3a4a66';
+      ctx.fillText('— →', ox-8, y+4);
+    }
+  }
+
+  // PE grid
+  ctx.textAlign='center';
+  for(let r=0;r<N;r++){
+    for(let c=0;c<N;c++){
+      const x=ox+c*ps, y=oy+r*ps;
+      const k=getK(r,c,cyc);
+
+      // PE box
+      ctx.fillStyle=colors.pe;
+      if(k>=0){ ctx.strokeStyle=colors.ps; ctx.lineWidth=2; }
+      else { ctx.strokeStyle=colors.peb; ctx.lineWidth=1; }
+      ctx.beginPath(); ctx.roundRect(x,y,sz,sz,10); ctx.fill(); ctx.stroke();
+
+      if(k>=0){
+        ctx.fillStyle='rgba(255,175,69,0.12)';
+        ctx.beginPath(); ctx.roundRect(x,y,sz,sz,10); ctx.fill();
+      }
+
+      // PE label
+      ctx.fillStyle=colors.sub; ctx.font='10px monospace';
+      ctx.fillText('PE('+r+','+c+')', x+sz/2, y+14);
+
+      // Current computation
+      if(k>=0){
+        ctx.fillStyle=colors.ps; ctx.font='bold 16px monospace';
+        ctx.fillText('k'+k, x+sz/2, y+38);
+        ctx.fillStyle=colors.ink; ctx.font='10px monospace';
+        ctx.fillText('A['+r+']['+k+']×W['+k+']['+c+']', x+sz/2, y+54);
+      }
+
+      // Accumulated terms
+      const terms=[];
+      for(let kk=0;kk<K;kk++){
+        if(kk+r+c <= cyc) terms.push('k'+kk);
+      }
+      if(terms.length>0){
+        ctx.fillStyle=(terms.length===K)?colors.out:'#546e7a';
+        ctx.font='10px monospace';
+        ctx.fillText('acc='+terms.join('+'), x+sz/2, y+sz-8);
+      }
+
+      // Arrows
+      if(c<N-1){
+        ctx.fillStyle=k>=0?colors.act:'#2a3550';
+        ctx.fillText('→', x+sz+2, y+sz/2+4);
+      }
+      if(r<N-1){
+        ctx.fillStyle=k>=0?colors.w:'#2a3550';
+        ctx.fillText('↓', x+sz/2, y+sz+10);
+      }
+    }
+  }
+
+  // Cycle display
+  cycDisp.textContent = 'T = '+cyc+' / '+(totalCyc-1);
+
+  // Narrative
+  const activePEs=[];
+  const donePEs=[];
+  for(let r=0;r<N;r++) for(let c=0;c<N;c++){
+    const k=getK(r,c,cyc);
+    if(k>=0) activePEs.push('PE('+r+','+c+')');
+    let done=true;
+    for(let kk=0;kk<K;kk++) if(kk+r+c>cyc){done=false;break;}
+    if(done) donePEs.push('C['+r+']['+c+']');
+  }
+  let txt='';
+  if(activePEs.length>0) txt+='<b style="color:'+colors.ps+'">計算中:</b> '+activePEs.join(', ')+'　';
+  if(donePEs.length>0) txt+='<b style="color:'+colors.out+'">完了:</b> '+donePEs.join(', ');
+  if(activePEs.length===0 && cyc>0) txt='<b style="color:'+colors.out+'">全 PE 完了！</b> 16 要素の行列積が 10 サイクルで計算された。';
+  if(cyc===0) txt='<b style="color:'+colors.act+'">T=0:</b> PE(0,0) だけが有効データを受け取る。対角線上に波が広がっていく。';
+  narr.innerHTML=txt;
+}
+
+function nextCyc(){cyc=Math.min(cyc+1,totalCyc); draw();}
+function prevCyc(){cyc=Math.max(cyc-1,0); draw();}
+function togglePlay(){
+  playing=!playing;
+  document.getElementById('playBtn').textContent=playing?'⏸ 停止':'▶ 再生';
+  if(playing){
+    timer=setInterval(()=>{
+      if(cyc>=totalCyc){playing=false;document.getElementById('playBtn').textContent='▶ 再生';clearInterval(timer);return;}
+      nextCyc();
+    },800);
+  } else clearInterval(timer);
+}
+draw();
+</script>
+</body>
+</html>
