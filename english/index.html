@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0d1117">
+<title>English Training</title>
+<style>
+:root {
+  --bg: #0d1117; --surface: #161b22; --surface2: #1c2333;
+  --border: #30363d; --text: #e6edf3; --text-dim: #8b949e;
+  --accent: #58a6ff; --green: #3fb950; --orange: #f0883e;
+  --red: #f85149; --purple: #bc8cff; --yellow: #d29922; --radius: 12px;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;padding-bottom:72px}
+.app{max-width:640px;margin:0 auto;padding:12px 16px}
+
+.bottom-nav{position:fixed;bottom:0;left:0;right:0;background:var(--surface);border-top:1px solid var(--border);display:flex;z-index:50;padding:4px 0 env(safe-area-inset-bottom,4px)}
+.nav-btn{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 4px;border:none;background:none;color:var(--text-dim);font-size:0.6rem;cursor:pointer;transition:color 0.2s}
+.nav-btn.active{color:var(--accent)}
+
+.header{display:flex;align-items:center;justify-content:space-between;padding:8px 0 12px}
+.header h1{font-size:1.3rem;font-weight:700}
+.header h1 b{color:var(--accent)}
+.header-actions{display:flex;gap:6px}
+
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px;margin-bottom:10px}
+.card-title{font-size:0.85rem;font-weight:600;color:var(--accent);margin-bottom:8px;display:flex;align-items:center;gap:6px}
+.card-glow{border-color:var(--orange);box-shadow:0 0 0 1px rgba(240,136,62,0.15)}
+
+.section{font-size:1rem;font-weight:700;margin:16px 0 8px;display:flex;align-items:center;justify-content:space-between}
+
+button{font-family:inherit}
+.btn{padding:10px 18px;border:none;border-radius:var(--radius);cursor:pointer;font-size:0.85rem;font-weight:600;transition:all 0.15s}
+.btn:active{transform:scale(0.97)}
+.btn-p{background:var(--accent);color:#fff}
+.btn-g{background:var(--green);color:#fff}
+.btn-o{background:var(--orange);color:#fff}
+.btn-d{background:var(--red);color:#fff}
+.btn-ghost{background:transparent;color:var(--text-dim);border:1px solid var(--border)}
+.btn-sm{padding:6px 12px;font-size:0.75rem}
+.btn-full{width:100%}
+
+label{display:block;font-size:0.8rem;color:var(--text-dim);margin-bottom:4px;font-weight:500}
+input,select,textarea{width:100%;padding:10px 12px;background:var(--bg);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:0.9rem;margin-bottom:10px;font-family:inherit;resize:vertical}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
+
+.tag{display:inline-block;padding:2px 8px;border-radius:8px;font-size:0.65rem;font-weight:600}
+.tag-grammar{background:#1f3a5f;color:var(--accent)}
+.tag-biz{background:#2d1f4e;color:var(--purple)}
+.tag-vocab{background:#1a3d2a;color:var(--green)}
+.tag-daily{background:#3d2f1a;color:var(--orange)}
+.tag-tech{background:#3d1a2a;color:var(--red)}
+
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.stat{text-align:center;padding:8px 4px;background:var(--surface2);border-radius:8px}
+.stat .sv{font-size:1.1rem;font-weight:700}
+.stat .sl{font-size:0.6rem;color:var(--text-dim);margin-top:2px}
+
+.panel{display:none}.panel.active{display:block}
+
+.prompt-card{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:10px;cursor:pointer;transition:border-color 0.2s}
+.prompt-card:hover{border-color:var(--accent)}
+.prompt-card .pc-cat{font-size:0.7rem;color:var(--text-dim);margin-bottom:4px}
+.prompt-card .pc-en{font-size:0.9rem;font-weight:600;margin-bottom:2px}
+.prompt-card .pc-ja{font-size:0.8rem;color:var(--text-dim)}
+
+.writing-area{position:relative}
+.writing-area textarea{min-height:100px;font-size:0.95rem;line-height:1.6}
+.char-count{position:absolute;bottom:16px;right:12px;font-size:0.7rem;color:var(--text-dim)}
+
+.vocab-card{background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:16px;text-align:center;min-height:180px;display:flex;flex-direction:column;align-items:center;justify-content:center;cursor:pointer;transition:border-color 0.2s;margin-bottom:10px}
+.vocab-card .vc-word{font-size:1.4rem;font-weight:700;margin-bottom:4px}
+.vocab-card .vc-type{font-size:0.75rem;color:var(--text-dim);margin-bottom:8px}
+.vocab-card .vc-meaning{font-size:1rem;color:var(--green);margin-bottom:6px;display:none}
+.vocab-card .vc-example{font-size:0.85rem;color:var(--text-dim);font-style:italic;display:none;max-width:90%}
+.vocab-card.revealed .vc-meaning,.vocab-card.revealed .vc-example{display:block}
+.vocab-card .vc-hint{font-size:0.75rem;color:var(--text-dim);margin-top:8px}
+.vocab-card.revealed .vc-hint{display:none}
+
+.vocab-btns{display:flex;gap:8px;margin-bottom:16px}
+.vocab-btns button{flex:1}
+
+.entry-row{padding:10px 0;border-bottom:1px solid var(--border)}
+.entry-row:last-child{border-bottom:none}
+.entry-date{font-size:0.7rem;color:var(--text-dim);margin-bottom:2px}
+.entry-text{font-size:0.85rem;line-height:1.5}
+.entry-cat{float:right}
+
+.grammar-topic{font-size:0.9rem;font-weight:600;color:var(--orange);margin-bottom:4px}
+.grammar-desc{font-size:0.8rem;color:var(--text-dim);margin-bottom:8px;line-height:1.5}
+.grammar-examples{font-size:0.85rem;line-height:1.7;margin-bottom:8px}
+.grammar-examples code{background:var(--surface2);padding:1px 6px;border-radius:4px;color:var(--green);font-size:0.85rem}
+
+.modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:100;align-items:flex-end;justify-content:center}
+.modal-bg.show{display:flex}
+.modal{background:var(--surface);border:1px solid var(--border);border-radius:16px 16px 0 0;padding:20px;width:100%;max-width:640px;max-height:85vh;overflow-y:auto;animation:slideUp 0.25s ease}
+@keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
+.modal h3{font-size:1rem;margin-bottom:14px}
+.modal-handle{width:36px;height:4px;background:var(--border);border-radius:2px;margin:0 auto 12px}
+
+.empty{text-align:center;color:var(--text-dim);padding:24px;font-size:0.85rem}
+
+.streak-bar{display:flex;gap:3px;margin-bottom:8px}
+.streak-dot{width:100%;height:24px;border-radius:4px;background:var(--surface2);display:flex;align-items:center;justify-content:center;font-size:0.6rem;color:var(--text-dim)}
+.streak-dot.done{background:var(--green);color:#fff}
+.streak-dot.today{border:2px solid var(--accent)}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="header">
+    <h1><b>English</b> Training</h1>
+    <div class="header-actions">
+      <button class="btn btn-ghost btn-sm" onclick="exportData()">Export</button>
+      <button class="btn btn-ghost btn-sm" onclick="importData()">Import</button>
+    </div>
+  </div>
+
+  <!-- TODAY -->
+  <div id="p-today" class="panel active">
+    <div class="card card-glow">
+      <div class="card-title" style="color:var(--orange)">Today's Progress</div>
+      <div class="stats" id="today-stats"></div>
+    </div>
+    <div class="card">
+      <div class="card-title">7-Day Streak</div>
+      <div class="streak-bar" id="streak-bar"></div>
+    </div>
+    <div class="section">Quick Start</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <button class="btn btn-p btn-full" onclick="switchTab('p-grammar');startGrammar()" style="padding:16px 10px">Grammar Writing</button>
+      <button class="btn btn-o btn-full" onclick="switchTab('p-writing')" style="padding:16px 10px">Business Writing</button>
+      <button class="btn btn-g btn-full" onclick="switchTab('p-vocab');startVocab()" style="padding:16px 10px">Vocabulary</button>
+      <button class="btn btn-ghost btn-full" onclick="switchTab('p-log')" style="padding:16px 10px;color:var(--text)">Review Log</button>
+    </div>
+    <div class="section" style="margin-top:16px">Today's Writing</div>
+    <div class="card"><div id="today-entries"></div></div>
+  </div>
+
+  <!-- GRAMMAR -->
+  <div id="p-grammar" class="panel">
+    <div class="section">Grammar + Writing <button class="btn btn-p btn-sm" onclick="nextGrammar()">Next Topic</button></div>
+    <div class="card" id="grammar-lesson"></div>
+    <div class="section">Write 5 sentences using this grammar</div>
+    <div class="writing-area">
+      <textarea id="grammar-input" rows="6" placeholder="Write your sentences here...&#10;&#10;1. &#10;2. &#10;3. &#10;4. &#10;5. "></textarea>
+      <div class="char-count" id="grammar-count">0</div>
+    </div>
+    <button class="btn btn-g btn-full" onclick="saveGrammar()">Save & Complete</button>
+  </div>
+
+  <!-- WRITING -->
+  <div id="p-writing" class="panel">
+    <div class="section">Business English Writing</div>
+    <div class="card">
+      <div class="card-title" style="color:var(--purple)">Choose a scenario</div>
+      <div id="scenario-list"></div>
+    </div>
+    <div id="writing-workspace" style="display:none">
+      <div class="card" id="writing-prompt"></div>
+      <div class="section">Your Response</div>
+      <div class="writing-area">
+        <textarea id="writing-input" rows="8" placeholder="Write your response in English..."></textarea>
+        <div class="char-count" id="writing-count">0</div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-g" style="flex:1" onclick="saveWriting()">Save</button>
+        <button class="btn btn-ghost" style="flex:1" onclick="closeWriting()">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- VOCAB -->
+  <div id="p-vocab" class="panel">
+    <div class="section">Vocabulary <span id="vocab-progress" style="font-size:0.8rem;color:var(--text-dim)"></span></div>
+    <div class="vocab-card" id="vocab-card" onclick="revealVocab()"></div>
+    <div class="vocab-btns">
+      <button class="btn btn-d" onclick="markVocab('hard')">Hard</button>
+      <button class="btn btn-o" onclick="markVocab('ok')">OK</button>
+      <button class="btn btn-g" onclick="markVocab('easy')">Easy</button>
+    </div>
+    <div class="card">
+      <div class="card-title">Session Stats</div>
+      <div class="stats" id="vocab-stats"></div>
+    </div>
+  </div>
+
+  <!-- LOG -->
+  <div id="p-log" class="panel">
+    <div class="section">
+      Writing Log
+      <select id="log-filter" onchange="renderLog()" style="width:auto;margin:0;padding:4px 8px;font-size:0.75rem;border-radius:8px">
+        <option value="all">All</option>
+        <option value="grammar">Grammar</option>
+        <option value="business">Business</option>
+      </select>
+    </div>
+    <div class="card"><div id="log-list"></div></div>
+  </div>
+</div>
+
+<!-- Bottom Nav -->
+<nav class="bottom-nav">
+  <button class="nav-btn active" data-tab="p-today" onclick="switchTab('p-today')">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>
+    Today
+  </button>
+  <button class="nav-btn" data-tab="p-grammar" onclick="switchTab('p-grammar')">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M5 4v3h5.5v12h3V7H19V4H5z"/></svg>
+    Grammar
+  </button>
+  <button class="nav-btn" data-tab="p-writing" onclick="switchTab('p-writing')">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
+    Writing
+  </button>
+  <button class="nav-btn" data-tab="p-vocab" onclick="switchTab('p-vocab')">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M21 5c-1.11-.35-2.33-.5-3.5-.5-1.95 0-4.05.4-5.5 1.5-1.45-1.1-3.55-1.5-5.5-1.5S2.45 4.9 1 6v14.65c0 .25.25.5.5.5.1 0 .15-.05.25-.05C3.1 20.45 5.05 20 6.5 20c1.95 0 4.05.4 5.5 1.5 1.35-.85 3.8-1.5 5.5-1.5 1.65 0 3.35.3 4.75 1.05.1.05.15.05.25.05.25 0 .5-.25.5-.5V6c-.6-.45-1.25-.75-2-1zm0 13.5c-1.1-.35-2.3-.5-3.5-.5-1.7 0-4.15.65-5.5 1.5V8c1.35-.85 3.8-1.5 5.5-1.5 1.2 0 2.4.15 3.5.5v11.5z"/></svg>
+    Vocab
+  </button>
+  <button class="nav-btn" data-tab="p-log" onclick="switchTab('p-log')">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-2 10H7v-2h10v2z"/></svg>
+    Log
+  </button>
+</nav>
+
+<script>
+const today = () => new Date().toISOString().slice(0,10);
+function load(k,fb){try{return JSON.parse(localStorage.getItem('eng_'+k))||fb}catch{return fb}}
+function save(k,d){localStorage.setItem('eng_'+k,JSON.stringify(d))}
+
+// --- DATA ---
+
+const GRAMMAR_TOPICS = [
+  {id:1, title:'Present Perfect vs Past Simple',
+   desc:'Present Perfect = 過去の経験・継続・完了（今に関係）。Past Simple = 過去の1点の事実。',
+   examples:['I <code>have worked</code> on RTL design for 6 months. (continuing)', 'I <code>finished</code> the testbench yesterday. (done, specific time)', 'Have you <code>ever used</code> OpenROAD? (experience)', 'The synthesis <code>completed</code> at 3pm. (specific past)'],
+   hint:'Write about your SHISAKU project using both tenses.'},
+  {id:2, title:'Conditionals (If / Would / Could)',
+   desc:'1st: If + present → will (real future). 2nd: If + past → would (hypothetical). 3rd: If + had p.p. → would have p.p. (past hypothetical).',
+   examples:['If we <code>add</code> a pipeline stage, the fmax <code>will increase</code>. (1st: real plan)', 'If I <code>had</code> more area budget, I <code>would use</code> a wider datapath. (2nd: hypothetical)', 'If we <code>had known</code> about the timing violation, we <code>would have added</code> a register. (3rd: past)'],
+   hint:'Write about design tradeoffs using all three conditionals.'},
+  {id:3, title:'Passive Voice',
+   desc:'Be + past participle. Technical writing uses passive frequently: focus on the action, not the actor.',
+   examples:['The weights <code>are loaded</code> into the PE array before computation begins.', 'The critical path <code>was identified</code> through the multiplier.', 'DRC violations <code>must be resolved</code> before tapeout.', 'The clock tree <code>has been optimized</code> for skew reduction.'],
+   hint:'Describe your systolic array design process using passive voice.'},
+  {id:4, title:'Relative Clauses (who/which/that/where)',
+   desc:'Defining (no comma): essential info. Non-defining (comma): extra info. Which = things, who = people, where = places, that = both (defining only).',
+   examples:['The PE <code>that handles</code> the MAC operation is the core unit.', 'The NoC, <code>which connects</code> all Tensix cores, uses a mesh topology.', 'The engineer <code>who designed</code> the arbiter left detailed comments.', 'The stage <code>where</code> the hazard is detected is EX.'],
+   hint:'Describe components of your CPU or accelerator using relative clauses.'},
+  {id:5, title:'Comparatives & Superlatives',
+   desc:'Short adj: -er/-est. Long adj: more/most. Irregular: good→better→best, bad→worse→worst.',
+   examples:['Output-stationary is <code>more efficient</code> for small matrices <code>than</code> weight-stationary.', 'This is <code>the fastest</code> critical path in the design.', 'Adding registers makes the pipeline <code>deeper</code> but <code>slower</code> in latency.', 'Version 3 has <code>better</code> fmax <code>than</code> version 1.'],
+   hint:'Compare your v1/v2/v3 pipeline stage experiments.'},
+  {id:6, title:'Modal Verbs (should/must/might/could)',
+   desc:'Must = obligation/certainty. Should = recommendation. Might/may = possibility. Could = ability/suggestion.',
+   examples:['We <code>should add</code> a pipeline register to fix the timing violation.', 'The signal <code>must be</code> stable before the clock edge.', 'This approach <code>might cause</code> congestion in the routing stage.', 'We <code>could reduce</code> utilization to improve routability.'],
+   hint:'Write recommendations and possibilities about your design decisions.'},
+  {id:7, title:'Cause & Effect (because/since/therefore/so/due to)',
+   desc:'Because/since + clause (reason). Therefore/thus/hence + clause (result). Due to/owing to + noun.',
+   examples:['The timing failed <code>because</code> the combinational path was too long.', '<code>Since</code> the MAC dominates the critical path, we split it into two stages.', 'The wire delay was significant; <code>therefore</code>, the post-route fmax dropped.', 'The DRC violation is <code>due to</code> insufficient metal spacing.'],
+   hint:'Explain why you made specific design choices, using varied connectors.'},
+  {id:8, title:'Suggesting & Proposing (I\'d suggest / How about / Why don\'t we)',
+   desc:'Polite suggestions for meetings and code reviews. Graduated formality: informal → formal.',
+   examples:['<code>Why don\'t we</code> try a different floorplan?', '<code>How about</code> reducing the clock target to 80MHz?', '<code>I\'d suggest</code> adding assertions to catch this edge case.', '<code>It might be worth</code> considering a different dataflow.', '<code>I\'d recommend</code> running post-route STA before optimizing further.'],
+   hint:'Write 5 suggestions you might make in a design review meeting.'},
+  {id:9, title:'Present Perfect Continuous (have been ~ing)',
+   desc:'Action started in the past and continues now, or recently stopped with visible result. Emphasis on duration/process.',
+   examples:['I <code>have been working</code> on the systolic array for two weeks.', 'We <code>have been debugging</code> the hazard unit all morning.', 'The team <code>has been using</code> sky130 PDK since last year.', 'I <code>have been studying</code> Tensix architecture to prepare for ADIP.'],
+   hint:'Write about ongoing activities in your ADIP preparation.'},
+  {id:10, title:'Reported Speech (He said that... / She asked if...)',
+   desc:'Direct → Indirect: tense shifts back one step. Say/tell + that. Ask + if/whether (yes/no) or wh-word.',
+   examples:['He <code>said that</code> the timing closure <code>would take</code> another week.', 'She <code>asked if</code> we <code>had considered</code> a different topology.', 'The reviewer <code>mentioned that</code> the test coverage <code>was</code> insufficient.', 'They <code>told us</code> to prioritize DRC over LVS.'],
+   hint:'Report conversations about design decisions or code reviews.'},
+  {id:11, title:'Articles (a/an/the/zero)',
+   desc:'A/an = first mention or general. The = specific/already known. Zero article = uncountable/general plural.',
+   examples:['<code>A</code> systolic array processes matrix multiplications.', 'We added <code>a</code> register. <code>The</code> register reduced the critical path.', '<code>The</code> NoC connects all cores. (specific, unique)', '<code>Timing closure</code> is critical. (zero: uncountable concept)'],
+   hint:'Describe your project overview, paying attention to every article choice.'},
+  {id:12, title:'Infinitive vs Gerund (-ing)',
+   desc:'Some verbs take to-infinitive (want/need/decide), some take gerund (enjoy/avoid/consider), some take both with meaning change (try/stop/remember).',
+   examples:['We <code>need to add</code> more pipeline stages. (infinitive)', 'Consider <code>reducing</code> the clock frequency. (gerund)', 'I tried <code>adding</code> a buffer, but it didn\'t help. (= attempted)', 'Remember <code>to check</code> the DRC report. (= don\'t forget)', 'We decided <code>to use</code> weight-stationary dataflow.'],
+   hint:'Write about decisions and considerations in your design process.'},
+];
+
+const SCENARIOS = [
+  {id:1, cat:'Design Review', catColor:'purple',
+   title:'Explain your design choice',
+   prompt:'You\'re in a design review. Explain why you chose weight-stationary dataflow for your systolic array instead of output-stationary. Include the tradeoff.',
+   hint:'Use: "I chose X over Y because...", "The tradeoff is...", "An alternative would be..."'},
+  {id:2, cat:'Bug Report', catColor:'red',
+   title:'Report a timing violation',
+   prompt:'You found a 0.3ns timing violation on the critical path through the multiplier in your PE. Write a Slack message to your team lead explaining the issue and proposing a fix.',
+   hint:'Use: "I found...", "The root cause is...", "I\'d suggest..."'},
+  {id:3, cat:'Proposal', catColor:'green',
+   title:'Propose a pipeline optimization',
+   prompt:'Write an email proposing to split the MAC unit into separate multiply and add stages. Explain the expected improvement in fmax and the cost in latency/area.',
+   hint:'Use: "I\'d like to propose...", "The expected benefit is...", "The cost would be..."'},
+  {id:4, cat:'Asking Questions', catColor:'accent',
+   title:'Ask about NoC architecture',
+   prompt:'You\'re new at Tenstorrent. Write 5 questions you would ask a senior engineer about the Tensix NoC architecture. Make them specific and show you\'ve done your homework.',
+   hint:'Use: "Could you walk me through...", "I\'ve read X but I\'m not clear on...", "What happens when..."'},
+  {id:5, cat:'Daily / Slack', catColor:'orange',
+   title:'Standup update',
+   prompt:'Write your daily standup message. Yesterday: finished cocotb testbench for systolic array. Today: starting ORFS synthesis. Blocker: SDC constraint file needs review.',
+   hint:'Use: "Yesterday I...", "Today I\'m planning to...", "I\'m blocked on..."'},
+  {id:6, cat:'Code Review', catColor:'green',
+   title:'PR description',
+   prompt:'Write a pull request description for adding pipeline registers to the PE module. Explain what changed, why, and how to test it.',
+   hint:'Use: "This PR adds...", "Motivation: ...", "To verify: ..."'},
+  {id:7, cat:'Asking Questions', catColor:'accent',
+   title:'Clarify requirements',
+   prompt:'Your manager asked you to "improve the timing" of a module. Write a reply asking for clarification: what\'s the target fmax? which paths are priority? is area increase acceptable?',
+   hint:'Use: "Could you clarify...", "What\'s the target for...", "Is it acceptable to..."'},
+  {id:8, cat:'Proposal', catColor:'green',
+   title:'Tradeoff analysis',
+   prompt:'Write a short document comparing three options for your design: (A) single-cycle MAC, (B) pipelined MAC, (C) multi-cycle MAC. Include fmax, area, latency, and your recommendation.',
+   hint:'Use: "Option A provides... but...", "Comparing the three...", "I\'d recommend... because..."'},
+  {id:9, cat:'Daily / Slack', catColor:'orange',
+   title:'Ask for help',
+   prompt:'You\'re stuck on a DRC violation you don\'t understand. Write a Slack message to a colleague asking for help. Be specific about what you\'ve tried.',
+   hint:'Use: "I\'m running into...", "I\'ve tried X and Y but...", "Do you have any suggestions for..."'},
+  {id:10, cat:'Design Review', catColor:'purple',
+   title:'Explain verification results',
+   prompt:'Present your cocotb verification results for the systolic array. Explain what tests you ran, coverage, and any edge cases you found.',
+   hint:'Use: "We verified... using...", "The test suite covers...", "One interesting edge case was..."'},
+  {id:11, cat:'Daily / Slack', catColor:'orange',
+   title:'Lunch & small talk',
+   prompt:'Write 5 short messages for daily life at work: inviting someone to lunch, saying you\'ll be late, asking where the meeting room is, thanking someone for help, saying goodbye for the day.',
+   hint:'Keep it natural and casual.'},
+  {id:12, cat:'Proposal', catColor:'green',
+   title:'Suggest a new approach',
+   prompt:'You think the current test methodology is missing corner cases. Write a proposal to add constrained random verification using cocotb. Explain the benefit over directed tests.',
+   hint:'Use: "The current approach...", "I\'d like to propose...", "This would catch..."'},
+];
+
+const VOCAB_DATA = [
+  // Technical - Semiconductor
+  {word:'synthesis',type:'noun',meaning:'論理合成',example:'The synthesis tool maps RTL to gate-level netlist.',cat:'tech'},
+  {word:'timing closure',type:'noun',meaning:'タイミング収束',example:'We achieved timing closure at 200MHz after adding pipeline registers.',cat:'tech'},
+  {word:'slack',type:'noun',meaning:'タイミング余裕',example:'The worst negative slack is -0.3ns on the multiplier path.',cat:'tech'},
+  {word:'critical path',type:'noun',meaning:'クリティカルパス',example:'The critical path goes through three levels of logic.',cat:'tech'},
+  {word:'utilization',type:'noun',meaning:'利用率',example:'We set the core utilization to 65% to leave room for routing.',cat:'tech'},
+  {word:'congestion',type:'noun',meaning:'配線混雑',example:'High congestion in the center caused DRC violations.',cat:'tech'},
+  {word:'floorplan',type:'noun/verb',meaning:'フロアプラン（配置計画）',example:'We need to floorplan the memories along the edges.',cat:'tech'},
+  {word:'tapeout',type:'noun',meaning:'テープアウト（最終設計提出）',example:'The tapeout deadline is next Friday.',cat:'tech'},
+  {word:'throughput',type:'noun',meaning:'スループット',example:'The systolic array achieves 16 MACs per cycle throughput.',cat:'tech'},
+  {word:'latency',type:'noun',meaning:'レイテンシ（遅延）',example:'Adding pipeline stages increases latency but improves throughput.',cat:'tech'},
+  {word:'arbitration',type:'noun',meaning:'調停',example:'The NoC uses round-robin arbitration for fairness.',cat:'tech'},
+  {word:'assertion',type:'noun',meaning:'アサーション（検証用条件チェック）',example:'We added assertions to catch protocol violations.',cat:'tech'},
+  {word:'coverage',type:'noun',meaning:'カバレッジ（検証網羅率）',example:'Our functional coverage reached 95% across all scenarios.',cat:'tech'},
+  {word:'regression',type:'noun',meaning:'リグレッション（回帰テスト）',example:'Run the full regression before merging to main.',cat:'tech'},
+  {word:'instantiate',type:'verb',meaning:'インスタンス化する',example:'We instantiate 16 PE modules in the systolic array.',cat:'tech'},
+  {word:'propagate',type:'verb',meaning:'伝播する',example:'The data propagates through the array diagonally.',cat:'tech'},
+  {word:'bottleneck',type:'noun',meaning:'ボトルネック',example:'Memory bandwidth is the bottleneck for large matrix operations.',cat:'tech'},
+  {word:'tradeoff',type:'noun',meaning:'トレードオフ',example:'There\'s always a tradeoff between area and performance.',cat:'tech'},
+  {word:'overhead',type:'noun',meaning:'オーバーヘッド',example:'The control logic adds 15% area overhead.',cat:'tech'},
+  {word:'constraint',type:'noun',meaning:'制約',example:'The timing constraints are defined in the SDC file.',cat:'tech'},
+
+  // Business / Meeting
+  {word:'elaborate',type:'verb',meaning:'詳しく説明する',example:'Could you elaborate on how the arbiter handles conflicts?',cat:'biz'},
+  {word:'regarding',type:'preposition',meaning:'〜に関して',example:'Regarding the timing issue, I have a suggestion.',cat:'biz'},
+  {word:'feasible',type:'adjective',meaning:'実現可能な',example:'Is it feasible to hit 300MHz with this architecture?',cat:'biz'},
+  {word:'prioritize',type:'verb',meaning:'優先順位をつける',example:'We should prioritize timing closure over area optimization.',cat:'biz'},
+  {word:'align',type:'verb',meaning:'合わせる・一致させる',example:'Let\'s align on the requirements before starting implementation.',cat:'biz'},
+  {word:'address',type:'verb',meaning:'対処する',example:'We need to address the DRC violations before tapeout.',cat:'biz'},
+  {word:'scope',type:'noun',meaning:'範囲・スコープ',example:'That\'s out of scope for this sprint.',cat:'biz'},
+  {word:'blocker',type:'noun',meaning:'ブロッカー（阻害要因）',example:'The missing SDC file is a blocker for synthesis.',cat:'biz'},
+  {word:'deliverable',type:'noun',meaning:'成果物',example:'The main deliverable is a DRC-clean layout.',cat:'biz'},
+  {word:'stakeholder',type:'noun',meaning:'ステークホルダー',example:'We need buy-in from all stakeholders before proceeding.',cat:'biz'},
+  {word:'iterate',type:'verb',meaning:'反復する・繰り返す',example:'Let\'s iterate on the design until we meet the target.',cat:'biz'},
+  {word:'escalate',type:'verb',meaning:'エスカレーションする',example:'If we can\'t resolve it by Friday, I\'ll escalate to the director.',cat:'biz'},
+  {word:'accountable',type:'adjective',meaning:'責任を持つ',example:'Who is accountable for the verification signoff?',cat:'biz'},
+  {word:'leverage',type:'verb',meaning:'活用する',example:'We can leverage the existing testbench for the new module.',cat:'biz'},
+  {word:'bandwidth',type:'noun',meaning:'（人の）余裕・キャパ',example:'I don\'t have the bandwidth to take on another task this week.',cat:'biz'},
+
+  // Daily expressions
+  {word:'grab lunch',type:'phrase',meaning:'昼食に行く',example:'Want to grab lunch? There\'s a good place nearby.',cat:'daily'},
+  {word:'heads up',type:'phrase',meaning:'事前の知らせ',example:'Just a heads up — the build server will be down at 3pm.',cat:'daily'},
+  {word:'sounds good',type:'phrase',meaning:'いいですね',example:'A: "Let\'s sync at 2pm." B: "Sounds good."',cat:'daily'},
+  {word:'I\'m on it',type:'phrase',meaning:'やっています・取りかかります',example:'A: "Can you check the failing test?" B: "I\'m on it."',cat:'daily'},
+  {word:'circle back',type:'phrase',meaning:'後で戻ってくる・再議論する',example:'Let\'s circle back on this after I run the experiment.',cat:'daily'},
+  {word:'wrap up',type:'phrase',meaning:'終わりにする・まとめる',example:'Let\'s wrap up the meeting — any final questions?',cat:'daily'},
+  {word:'run into',type:'phrase',meaning:'（問題に）ぶつかる',example:'I ran into an issue with the clock tree synthesis.',cat:'daily'},
+  {word:'figure out',type:'phrase',meaning:'解明する・理解する',example:'I\'m trying to figure out why the test is failing.',cat:'daily'},
+  {word:'look into',type:'phrase',meaning:'調べる',example:'I\'ll look into the root cause and get back to you.',cat:'daily'},
+  {word:'keep me posted',type:'phrase',meaning:'進捗を教えて',example:'Keep me posted on the synthesis results.',cat:'daily'},
+  {word:'no worries',type:'phrase',meaning:'大丈夫ですよ',example:'A: "Sorry for the delay." B: "No worries, take your time."',cat:'daily'},
+  {word:'by the way',type:'phrase',meaning:'ところで',example:'By the way, the design review is moved to Thursday.',cat:'daily'},
+  {word:'makes sense',type:'phrase',meaning:'なるほど・理にかなっている',example:'A: "We split it to reduce the critical path." B: "That makes sense."',cat:'daily'},
+  {word:'for the time being',type:'phrase',meaning:'当面は・とりあえず',example:'For the time being, let\'s use the slower clock target.',cat:'daily'},
+  {word:'from scratch',type:'phrase',meaning:'ゼロから',example:'I wrote the testbench from scratch using cocotb.',cat:'daily'},
+];
+
+// --- STATE ---
+let entries = load('entries', []);
+let vocabState = load('vocabState', {});
+let currentGrammarIdx = load('grammarIdx', 0);
+let currentVocabIdx = 0;
+let vocabSession = {total:0, hard:0, ok:0, easy:0};
+let currentScenario = null;
+let vocabQueue = [];
+
+// --- NAV ---
+function switchTab(tabId) {
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tabId));
+  document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === tabId));
+  if (tabId === 'p-today') renderToday();
+  if (tabId === 'p-log') renderLog();
+  if (tabId === 'p-grammar') renderGrammar();
+  if (tabId === 'p-writing') renderScenarios();
+  if (tabId === 'p-vocab') renderVocabCard();
+}
+
+// --- TODAY ---
+function renderToday() {
+  const d = today();
+  const todayEntries = entries.filter(e => e.date === d);
+  const grammarDone = todayEntries.some(e => e.type === 'grammar');
+  const writingDone = todayEntries.some(e => e.type === 'business');
+  const vocabToday = load('vocabToday_' + d, {total:0, hard:0, ok:0, easy:0});
+  const vocabDone = vocabToday.total >= 10;
+
+  document.getElementById('today-stats').innerHTML = `
+    <div class="stat"><div class="sv" style="color:${grammarDone ? 'var(--green)' : 'var(--text-dim)'}">${grammarDone ? '&#10003;' : '-'}</div><div class="sl">Grammar</div></div>
+    <div class="stat"><div class="sv" style="color:${writingDone ? 'var(--green)' : 'var(--text-dim)'}">${writingDone ? '&#10003;' : '-'}</div><div class="sl">Writing</div></div>
+    <div class="stat"><div class="sv" style="color:${vocabDone ? 'var(--green)' : 'var(--text-dim)'}">${vocabToday.total}</div><div class="sl">Vocab</div></div>
+    <div class="stat"><div class="sv">${todayEntries.length}</div><div class="sl">Entries</div></div>
+  `;
+
+  // Streak
+  const bar = document.getElementById('streak-bar');
+  const days = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  const now = new Date();
+  const dayOfWeek = (now.getDay() + 6) % 7;
+  let html = '';
+  for (let i = 0; i < 7; i++) {
+    const date = new Date(now);
+    date.setDate(date.getDate() - dayOfWeek + i);
+    const ds = date.toISOString().slice(0,10);
+    const done = entries.some(e => e.date === ds);
+    const isToday = ds === d;
+    html += `<div class="streak-dot ${done ? 'done' : ''} ${isToday ? 'today' : ''}">${days[i]}</div>`;
+  }
+  bar.innerHTML = html;
+
+  // Today's entries
+  const el = document.getElementById('today-entries');
+  if (!todayEntries.length) { el.innerHTML = '<div class="empty">No entries yet. Start practicing!</div>'; return; }
+  el.innerHTML = todayEntries.map(e => `
+    <div class="entry-row">
+      <div class="entry-date">${e.type === 'grammar' ? e.topic : e.scenario} <span class="tag ${e.type === 'grammar' ? 'tag-grammar' : 'tag-biz'}">${e.type}</span></div>
+      <div class="entry-text">${escHtml(e.text).replace(/\n/g,'<br>')}</div>
+    </div>
+  `).join('');
+}
+
+// --- GRAMMAR ---
+function startGrammar() { renderGrammar(); }
+function nextGrammar() {
+  currentGrammarIdx = (currentGrammarIdx + 1) % GRAMMAR_TOPICS.length;
+  save('grammarIdx', currentGrammarIdx);
+  document.getElementById('grammar-input').value = '';
+  renderGrammar();
+}
+function renderGrammar() {
+  const t = GRAMMAR_TOPICS[currentGrammarIdx];
+  document.getElementById('grammar-lesson').innerHTML = `
+    <div class="grammar-topic">${t.title}</div>
+    <div class="grammar-desc">${t.desc}</div>
+    <div class="grammar-examples">${t.examples.map(e => '&bull; ' + e).join('<br>')}</div>
+    <div style="font-size:0.8rem;color:var(--orange)">Hint: ${t.hint}</div>
+  `;
+}
+function saveGrammar() {
+  const text = document.getElementById('grammar-input').value.trim();
+  if (!text) return;
+  const t = GRAMMAR_TOPICS[currentGrammarIdx];
+  entries.push({id: Date.now().toString(36), date: today(), type: 'grammar', topic: t.title, text});
+  save('entries', entries);
+  document.getElementById('grammar-input').value = '';
+  nextGrammar();
+  alert('Saved! Moving to next topic.');
+}
+
+// --- WRITING ---
+function renderScenarios() {
+  document.getElementById('scenario-list').innerHTML = SCENARIOS.map(s => `
+    <div class="prompt-card" onclick="selectScenario(${s.id})">
+      <div class="pc-cat"><span class="tag tag-${s.catColor === 'accent' ? 'grammar' : s.catColor === 'purple' ? 'biz' : s.catColor === 'green' ? 'vocab' : 'daily'}">${s.cat}</span></div>
+      <div class="pc-en">${s.title}</div>
+      <div class="pc-ja">${s.prompt.slice(0,60)}...</div>
+    </div>
+  `).join('');
+  document.getElementById('writing-workspace').style.display = 'none';
+}
+function selectScenario(id) {
+  currentScenario = SCENARIOS.find(s => s.id === id);
+  document.getElementById('writing-prompt').innerHTML = `
+    <div class="card-title" style="color:var(--purple)">${currentScenario.cat}: ${currentScenario.title}</div>
+    <div style="font-size:0.9rem;line-height:1.6;margin-bottom:8px">${currentScenario.prompt}</div>
+    <div style="font-size:0.8rem;color:var(--orange)">Hint: ${currentScenario.hint}</div>
+  `;
+  document.getElementById('writing-input').value = '';
+  document.getElementById('writing-workspace').style.display = 'block';
+  document.getElementById('scenario-list').parentElement.style.display = 'none';
+}
+function closeWriting() {
+  document.getElementById('writing-workspace').style.display = 'none';
+  document.getElementById('scenario-list').parentElement.style.display = 'block';
+  currentScenario = null;
+}
+function saveWriting() {
+  const text = document.getElementById('writing-input').value.trim();
+  if (!text || !currentScenario) return;
+  entries.push({id: Date.now().toString(36), date: today(), type: 'business', scenario: currentScenario.title, cat: currentScenario.cat, text});
+  save('entries', entries);
+  alert('Saved!');
+  closeWriting();
+}
+
+// --- VOCAB ---
+function buildVocabQueue() {
+  const state = load('vocabState', {});
+  const scored = VOCAB_DATA.map((v, i) => {
+    const s = state[v.word] || {hard:0, ok:0, easy:0, last:0};
+    const weight = 10 + s.hard * 3 - s.easy * 2;
+    return {idx: i, weight: Math.max(1, weight), last: s.last};
+  });
+  scored.sort((a, b) => b.weight - a.weight || a.last - b.last);
+  vocabQueue = scored.map(s => s.idx);
+  currentVocabIdx = 0;
+}
+function startVocab() {
+  vocabSession = {total:0, hard:0, ok:0, easy:0};
+  buildVocabQueue();
+  renderVocabCard();
+}
+function renderVocabCard() {
+  if (currentVocabIdx >= vocabQueue.length) { buildVocabQueue(); currentVocabIdx = 0; }
+  const v = VOCAB_DATA[vocabQueue[currentVocabIdx]];
+  const card = document.getElementById('vocab-card');
+  card.className = 'vocab-card';
+  card.innerHTML = `
+    <div class="vc-word">${v.word}</div>
+    <div class="vc-type">${v.type} <span class="tag ${v.cat === 'tech' ? 'tag-tech' : v.cat === 'biz' ? 'tag-biz' : 'tag-daily'}">${v.cat}</span></div>
+    <div class="vc-meaning">${v.meaning}</div>
+    <div class="vc-example">"${v.example}"</div>
+    <div class="vc-hint">Tap to reveal</div>
+  `;
+  document.getElementById('vocab-progress').textContent = `${currentVocabIdx + 1} / ${VOCAB_DATA.length}`;
+  renderVocabStats();
+}
+function revealVocab() {
+  document.getElementById('vocab-card').classList.add('revealed');
+}
+function markVocab(level) {
+  const v = VOCAB_DATA[vocabQueue[currentVocabIdx]];
+  const state = load('vocabState', {});
+  if (!state[v.word]) state[v.word] = {hard:0, ok:0, easy:0, last:0};
+  state[v.word][level]++;
+  state[v.word].last = Date.now();
+  save('vocabState', state);
+
+  vocabSession.total++;
+  vocabSession[level]++;
+
+  const d = today();
+  const todayVocab = load('vocabToday_' + d, {total:0, hard:0, ok:0, easy:0});
+  todayVocab.total++;
+  todayVocab[level]++;
+  save('vocabToday_' + d, todayVocab);
+
+  currentVocabIdx++;
+  renderVocabCard();
+}
+function renderVocabStats() {
+  document.getElementById('vocab-stats').innerHTML = `
+    <div class="stat"><div class="sv">${vocabSession.total}</div><div class="sl">Total</div></div>
+    <div class="stat"><div class="sv" style="color:var(--red)">${vocabSession.hard}</div><div class="sl">Hard</div></div>
+    <div class="stat"><div class="sv" style="color:var(--orange)">${vocabSession.ok}</div><div class="sl">OK</div></div>
+    <div class="stat"><div class="sv" style="color:var(--green)">${vocabSession.easy}</div><div class="sl">Easy</div></div>
+  `;
+}
+
+// --- LOG ---
+function renderLog() {
+  const f = document.getElementById('log-filter').value;
+  const filtered = f === 'all' ? entries : entries.filter(e => e.type === f);
+  const sorted = [...filtered].sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id));
+  const el = document.getElementById('log-list');
+  if (!sorted.length) { el.innerHTML = '<div class="empty">No entries yet</div>'; return; }
+  el.innerHTML = sorted.map(e => `
+    <div class="entry-row">
+      <div class="entry-date">
+        ${e.date} — ${e.type === 'grammar' ? e.topic : e.scenario || ''}
+        <span class="tag ${e.type === 'grammar' ? 'tag-grammar' : 'tag-biz'}" style="float:right">${e.type}</span>
+        <button class="btn btn-d btn-sm" style="float:right;padding:1px 6px;font-size:0.6rem;margin-right:4px" onclick="deleteEntry('${e.id}')">Del</button>
+      </div>
+      <div class="entry-text">${escHtml(e.text).replace(/\n/g, '<br>')}</div>
+    </div>
+  `).join('');
+}
+function deleteEntry(id) { entries = entries.filter(e => e.id !== id); save('entries', entries); renderLog(); renderToday(); }
+
+// --- UTILS ---
+function escHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// char counters
+document.addEventListener('input', e => {
+  if (e.target.id === 'grammar-input') document.getElementById('grammar-count').textContent = e.target.value.length;
+  if (e.target.id === 'writing-input') document.getElementById('writing-count').textContent = e.target.value.length;
+});
+
+// --- EXPORT/IMPORT ---
+function exportData() {
+  const d = {entries, vocabState: load('vocabState',{}), grammarIdx: currentGrammarIdx, exportedAt: new Date().toISOString()};
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(d,null,2)], {type:'application/json'}));
+  a.download = `english_backup_${today()}.json`; a.click();
+}
+function importData() {
+  const input = document.createElement('input'); input.type = 'file'; input.accept = '.json';
+  input.onchange = e => { const r = new FileReader(); r.onload = ev => { try {
+    const d = JSON.parse(ev.target.result);
+    if (d.entries) { entries = d.entries; save('entries', entries); }
+    if (d.vocabState) save('vocabState', d.vocabState);
+    if (d.grammarIdx != null) { currentGrammarIdx = d.grammarIdx; save('grammarIdx', currentGrammarIdx); }
+    renderToday();
+  } catch { alert('Invalid file'); } }; r.readAsText(e.target.files[0]); }; input.click();
+}
+
+// --- INIT ---
+renderToday();
+</script>
+</body>
+</html>

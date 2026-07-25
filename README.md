@@ -76,6 +76,12 @@
 | HW/RTL設計の要点 — NoC・検証(UVM)・PPA | [notes](hw-rtl/hw_rtl_notes.md) | [図解](https://mstk13.github.io/MANABI/hw-rtl/hw_rtl.html) |
 | 物理設計(論理合成のあと) — フロアプラン→配置→CTS→配線→GDS | [notes](physical-design/pd_notes.md) | [図解](https://mstk13.github.io/MANABI/physical-design/pd.html) |
 
+### English Training
+
+| トピック | ノート | アプリ(ブラウザ) |
+|---|---|---|
+| 英語練習アプリ — 文法ライティング・業務英語・語彙フラッシュカード（渡米準備） | [plan](english/plan.md) | [アプリ](https://mstk13.github.io/MANABI/english/index.html) |
+
 ### その他
 
 | トピック | ノート | 図(ブラウザ) |
