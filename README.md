@@ -5,6 +5,7 @@
 
 - **ノート(.md)**: GitHub 上でそのまま整形表示される。
 - **図(.html)**: GitHub Pages でインタラクティブに開ける → **https://mstk13.github.io/MANABI/**(public + Pages 有効)。
+- **[復習クイズ](https://mstk13.github.io/MANABI/review.html)**: 全トピックのフラッシュカード形式復習アプリ。
 
 > 関連: 設計プロジェクト本体は [mstk13/SHISAKU](https://github.com/mstk13/SHISAKU)(作る場所)。
 > こちら **MANABI は「学びの蓄積」**(理解のまとめ)。役割を分けて運用する。
