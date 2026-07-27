@@ -78,9 +78,7 @@
 
 ### English Training
 
-| トピック | ノート | アプリ(ブラウザ) |
-|---|---|---|
-| 英語練習アプリ — 文法ライティング・業務英語・語彙フラッシュカード（渡米準備） | [plan](english/plan.md) | [アプリ](https://mstk13.github.io/MANABI/english/index.html) |
+英語学習コンテンツは [English_study](https://github.com/mstk13/English_study) リポジトリに移動しました。
 
 ### その他
 
